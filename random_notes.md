@@ -77,3 +77,13 @@ Kafka is responsible for partition assignment when a consumer group subscribes t
 
 - Each partition is assigned to exactly one consumer within a consumer group
 - If a consumer fails, Kafka will rebalance the partitions across the remaining consumers
+
+
+## MONGODB PART
+We decided to store the aggregated data, which needs to be accessed by dashboards for content creators and by filtering/recommendation systems, in MongoDB—a NoSQL database optimized for document storage.
+
+The advantages of this solution include:
+
+- A flexible schema, which is ideal for evolving data models
+- Fast read performance, making it suitable for analytics and recommendation queries
+- Horizontal scalability through built-in sharding capabilities (not implemented in our project)
