@@ -26,47 +26,39 @@ kafka-status:
 kafka-eval:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 bash
 
-create-topic:
+create-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
-		--bootstrap-server kafka1:9092 \
-		--create --topic test-topic --partitions 3 --replication-factor 3 --if-not-exists
+		--bootstrap-server kafka1:9092 --create --if-not-exists \
+		--topic podcast-metadata --partitions 3 --replication-factor 3 --config retention.ms=-1 && \
+	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
+		--bootstrap-server kafka1:9092 --create --if-not-exists \
+		--topic transcripts-en --partitions 9 --replication-factor 3 && \
+	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
+		--bootstrap-server kafka1:9092 --create --if-not-exists \
+		--topic transcripts-foreign --partitions 9 --replication-factor 3 && \
+	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
+		--bootstrap-server kafka1:9092 --create --if-not-exists \
+		--topic user-events-stream --partitions 24 --replication-factor 3
 
 list-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --list
 
+# --- General Aggregate Commands ---
+up: kafka-up
 
-# # --- MongoDB Commands ---
-# mongo-up:
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml up -d
+status:
+	@echo "\n--- Kafka Status ---"
+	docker-compose -f $(KAFKA_PATH)/docker-compose.yml ps
 
-# mongo-down:
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml down
+# --- Full Project Initialization ---
+init:
+	@make up
+	@echo "Waiting for Kafka to be ready..."
+	@until docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh --bootstrap-server kafka1:9092 --list > /dev/null 2>&1; do \
+		echo "Kafka not ready, waiting..."; \
+		sleep 2; \
+	done
+	@make create-topics
+	@make status
 
-# mongo-logs:
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml logs -f
-
-# mongo-status:
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml ps
-
-# mongo-shell:
-# 	docker exec -it mongodb mongosh
-
-# # --- General Aggregate Commands ---
-# #up: kafka-up mongo-up
-
-# #down: kafka-down mongo-down
-
-# #restart: down up
-
-# logs:
-# 	@echo "\n--- Kafka Logs ---"
-# 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml logs --tail=20
-# 	@echo "\n--- Mongo Logs ---"
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml logs --tail=20
-
-# status:
-# 	@echo "\n--- Kafka Status ---"
-# 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml ps
-# 	@echo "\n--- MongoDB Status ---"
-# 	docker-compose -f $(MONGO_PATH)/docker-compose.yml ps
