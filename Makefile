@@ -2,15 +2,17 @@
 
 KAFKA_PATH=./docker/kafka
 MONGO_PATH=./docker/mongodb
+SPARK_PATH=./docker/spark
 
 .PHONY: up down restart logs status \
         kafka-up kafka-down kafka-logs kafka-status kafka-restart kafka-eval \
         create-topic list-topics \
-		mongo-up mongo-down mongo-logs mongo-status mongo-shell
+		mongo-up mongo-down mongo-logs mongo-status mongo-shell \
+		spark-up spark-down spark-logs spark-status
 
 # --- Kafka Commands ---
 kafka-up:
-	docker-compose -f $(KAFKA_PATH)/docker-compose.yml up -d
+	docker-compose --env-file .env.development -f $(KAFKA_PATH)/docker-compose.yml up -d
 
 kafka-down:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml down
@@ -61,10 +63,25 @@ mongo-status:
 mongo-shell:
 	docker exec -it mongodb mongosh
 
-# --- General Aggregate Commands ---
-up: kafka-up mongo-up
+# -- Spark Commands ---
+spark-up:
+	docker-compose --env-file .env.development -f $(SPARK_PATH)/docker-compose.yml up -d
 
-down: kafka-down mongo-down
+spark-down:
+	docker-compose -f $(SPARK_PATH)/docker-compose.yml down
+
+spark-logs:
+	docker-compose -f $(SPARK_PATH)/docker-compose.yml logs -f
+
+spark-status:
+	docker-compose -f $(SPARK_PATH)/docker-compose.yml ps
+
+
+
+# --- General Aggregate Commands ---
+up: kafka-up mongo-up spark-up
+
+down: kafka-down mongo-down spark-down
 
 restart: down up
 
@@ -73,12 +90,16 @@ logs:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml logs --tail=20
 	@echo "\n--- Mongo Logs ---"
 	docker-compose -f $(MONGO_PATH)/docker-compose.yml logs --tail=20
+	@echo "\n--- Spark Logs ---"
+	docker-compose -f $(SPARK_PATH)/docker-compose.yml logs --tail=20
 
 status:
 	@echo "\n--- Kafka Status ---"
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml ps
-	@echo "\n--- Kafka Status ---"
+	@echo "\n--- Mongo Status ---"
 	docker-compose -f $(MONGO_PATH)/docker-compose.yml ps
+	@echo "\n--- Spark Status ---"
+	docker-compose -f $(SPARK_PATH)/docker-compose.yml ps
 
 # --- Full Project Initialization ---
 init:
