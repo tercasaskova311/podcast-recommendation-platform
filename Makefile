@@ -8,7 +8,8 @@ SPARK_PATH=./docker/spark
         kafka-up kafka-down kafka-logs kafka-status kafka-restart kafka-eval \
         create-topic list-topics \
 		mongo-up mongo-down mongo-logs mongo-status mongo-shell \
-		spark-up spark-down spark-logs spark-status
+		spark-up spark-down spark-logs spark-status \
+		metadata transcripts-en transcripts-foreign summary
 
 # --- Kafka Commands ---
 kafka-up:
@@ -76,7 +77,18 @@ spark-logs:
 spark-status:
 	docker-compose -f $(SPARK_PATH)/docker-compose.yml ps
 
+# --- Spark Job Commands for one-shot container ---
+spark-up-metadata:
+	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-metadata
 
+spark-up-transcripts-en:
+	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-en
+
+spark-up-transcripts-foreign:
+	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-foreign
+
+spark-up-summary:
+	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-summary
 
 # --- General Aggregate Commands ---
 up: kafka-up mongo-up spark-up
@@ -104,6 +116,8 @@ status:
 # --- Full Project Initialization ---
 init:
 	@make up
+	@docker compose -f $(SPARK_PATH)/docker-compose.yml build
+	@docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml build
 	@echo "Waiting for Kafka to be ready..."
 	@until docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh --bootstrap-server kafka1:9092 --list > /dev/null 2>&1; do \
 		echo "Kafka not ready, waiting..."; \
