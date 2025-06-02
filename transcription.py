@@ -1,103 +1,96 @@
-import json
 import os
 import io
+import json
 import time
-import requests
 import tempfile
+import requests
 import torch
 from pydub import AudioSegment
+from faster_whisper import WhisperModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from faster_whisper import WhisperModel  # 
 
-# --- CONFIGURATION ---
-MAX_WORKERS = 4
-MODEL_SIZE = "base"  # Options: "tiny", "base", "small", "medium", "large"
+
+# --- CONFIG --------------------------------------------------------------------------------
+from huggingface_hub import login
+import os
+
+login(token=os.environ["HUGGINGFACE_TOKEN"])
+
+
+MAX_WORKERS = 2
+MODEL_SIZE = "tiny"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"  # for CPU use int8
+COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
-# --- AUDIO UTILS ---
-
+# Save file names corectly => get url => convert to wav bytes----------------------------------
 def safe_filename(name):
-    return (
-        name.replace(" ", "_")
-        .replace("/", "_")
-        .replace("\\", "_")
-        .replace(":", "-")
-    )
+    return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
-def convert_to_wav_bytes(audio_bytes):
-    audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+def stream_download(url):
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        buffer = io.BytesIO()
+        for chunk in r.iter_content(chunk_size=8192):
+            buffer.write(chunk)
+        buffer.seek(0)
+        return buffer
+
+def convert_to_wav_bytes(audio_buffer):
+    audio = AudioSegment.from_file(audio_buffer)
     audio = audio.set_frame_rate(16000).set_channels(1)
     wav_io = io.BytesIO()
     audio.export(wav_io, format="wav")
     return wav_io.getvalue()
 
-# --- TRANSCRIPTION FUNCTION ---
+# TRANSCRIBE -----------------------------------------------------------------------
+import time
 
-def process_episode(episode):
-    episode_title = episode.get("episode_title", "unknown_episode")
-    audio_url = episode.get("audio_url")
-    safe_title = safe_filename(episode_title)
-    transcript_json_path = os.path.join("transcripts", f"{safe_title}.json")
+def transcribe_episode(episode):
+    start = time.time()
+    title = episode.get("episode_title", "unknown")
+    url = episode.get("audio_url")
 
-    if os.path.exists(transcript_json_path):
-        print(f"[SKIP] {episode_title} (already transcribed).")
-        return
+    print(f"[{title}] Starting")
 
-    try:
-        print(f"[FETCHING] {episode_title}")
-        response = requests.get(audio_url, stream=True)
-        response.raise_for_status()
-        audio_bytes = response.content
+    # Download
+    dl_start = time.time()
+    audio_stream = stream_download(url)
+    print(f"[{title}] Download took {time.time() - dl_start:.2f}s")
 
-        print(f"[CONVERTING] {episode_title}")
-        wav_data = convert_to_wav_bytes(audio_bytes)
+    # Convert
+    conv_start = time.time()
+    wav_data = convert_to_wav_bytes(audio_stream)
+    print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp_wav:
-            tmp_wav.write(wav_data)
-            tmp_wav.flush()
+    # Write to temp and transcribe
+    trans_start = time.time()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+        tmp.write(wav_data)
+        tmp.flush()
+        segments, _ = model.transcribe(tmp.name)
+        transcript = " ".join(seg.text for seg in segments)
+    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
 
-            print(f"[TRANSCRIBING] {episode_title}")
-            segments, _info = model.transcribe(tmp_wav.name)
+    print(f"[{title}] Total time {time.time() - start:.2f}s")
 
-            # Join all text segments
-            full_transcript = " ".join([seg.text for seg in segments])
-
-            with open(transcript_json_path, "w", encoding="utf-8") as f_out:
-                json.dump({"transcript": full_transcript}, f_out, ensure_ascii=False, indent=2)
-
-            print(f"[SAVED] {episode_title}")
-
-    except Exception as e:
-        print(f"[ERROR] {episode_title}: {e}")
 
 # --- MAIN ---
 
 if __name__ == "__main__":
-    start_time = time.time()
+    start = time.time()
 
-    # Load episode list
     with open("top_episodes.json", "r") as f:
-        audio_list = json.load(f)
+        episodes = json.load(f)
 
-    # Prepare output directory
     os.makedirs("transcripts", exist_ok=True)
 
-    # Load faster-whisper model
-    print(f"[MODEL] Loading Faster-Whisper model: {MODEL_SIZE} on {DEVICE}")
-    model = WhisperModel(
-        MODEL_SIZE,
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
-        local_files_only=False  # set True if you're offline with local model
-    )
+    print(f"[MODEL] Loading model '{MODEL_SIZE}' on {DEVICE}")
+    model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 
-    # Use multithreading
-    print(f"[THREADING] Using {MAX_WORKERS} threads")
+    print(f"[THREADING] Using {MAX_WORKERS} workers")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(process_episode, ep) for ep in audio_list]
+        futures = [executor.submit(transcribe_episode, ep) for ep in episodes]
         for future in as_completed(futures):
-            future.result()  # Will raise exceptions if any
+            future.result()
 
-    total_time = time.time() - start_time
-    print(f"\n✅ Finished all in {total_time:.2f} seconds")
+    print(f"\n Done in {time.time() - start:.2f} seconds")
