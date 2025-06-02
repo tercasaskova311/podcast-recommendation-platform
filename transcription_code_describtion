@@ -1,12 +1,12 @@
-# Voice-to-Text Transcription Script
+#Voice-to-Text Transcription Script
 
-## Overview
+##Overview
 This script downloads audio episodes from given URLs, converts them to the correct audio format, and transcribes their content using the Whisper speech-to-text model.
 
 ---
 
-## Inputs
-- ** top_podcasts.json**  
+##Inputs
+- **top_podcasts.json**  
   Podcast metadata from Podcast Index API, including title, description, id, and author.
 
 - **top_episodes.json**  
