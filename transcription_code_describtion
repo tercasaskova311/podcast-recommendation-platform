@@ -6,7 +6,7 @@ This script downloads audio episodes from given URLs, converts them to the corre
 ---
 
 ## Inputs
-- **top_podcasts.json**  
+- ** top_podcasts.json**  
   Podcast metadata from Podcast Index API, including title, description, id, and author.
 
 - **top_episodes.json**  
