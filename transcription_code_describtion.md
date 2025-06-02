@@ -20,27 +20,26 @@ This script automates the process of downloading podcast episodes, converting au
 ---
 
 ## Key Features  
-- Fetches trending podcast episodes based on recent listener engagement, not just total plays.  
-- Uses Hugging Face’s Whisper speech-to-text model, authenticated via an environment variable (`HUGGINGFACE_TOKEN`).  
-- Allows selection of Whisper model size (default: `tiny`) to balance speed and accuracy.  
-- Supports parallel processing with configurable worker count for faster transcription.
+- Fetches trending podcast episodes based on recent listener engagement, recent uploads, total plays, etc.  
+- Use Hugging Face’s Whisper speech-to-text model. 
+- Parallel processing with configurable worker count for faster transcription.
 
 ---
 
 ## Setup & Configuration  
 
 - **Authentication:**  
-  Set the environment variable `HUGGINGFACE_TOKEN` with your Hugging Face API token.
+  Env variable `HUGGINGFACE_TOKEN` with Hugging Face token.
 
 - **Model Size:**  
-  Choose the Whisper model size (`tiny`, `base`, `small`, etc.) based on your speed vs. accuracy needs.
+  Whisper model size (`tiny`, `base`, `small`, etc.) speed vs. accuracy.
 
 - **Concurrency:**  
-  Adjust `MAX_WORKERS` to set how many episodes are processed in parallel, balancing speed and system resource use.
+  Adjust `MAX_WORKERS` to set how many episodes are processed in parallel (speed).
 
 ---
 
-## How It Works (Processing Steps)  
+## How It Works 
 
 1. **Load Episode Metadata:**  
    Reads `top_episodes.json` to get episode details, including audio URLs.
