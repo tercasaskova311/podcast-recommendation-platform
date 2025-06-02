@@ -1,4 +1,26 @@
 .DS_Store
 
-audio/
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+
+# Hugging Face token file (if using dotenv)
+.env
+
+# Transcripts folder
 transcripts/
+
+# Temp files
+*.wav
+*.mp3
+*.flac
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.ipynb_checkpoints

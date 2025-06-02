@@ -1,0 +1,5 @@
+torch
+requests
+pydub
+faster-whisper
+huggingface_hub
