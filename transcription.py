@@ -11,12 +11,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # --- CONFIG --------------------------------------------------------------------------------
-from huggingface_hub import login
-import os
-
-login(token=os.environ["HUGGINGFACE_TOKEN"])
-
-
 MAX_WORKERS = 2
 MODEL_SIZE = "tiny"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -67,12 +61,25 @@ def transcribe_episode(episode):
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
         tmp.write(wav_data)
         tmp.flush()
-        segments, _ = model.transcribe(tmp.name)
-        transcript = " ".join(seg.text for seg in segments)
-    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
 
+        # detect language
+        segments, info = model.transcribe(tmp.name, beam_size=5, language=None)
+        detected_lang = info.language
+        print(f"[{title}] Detected language: {detected_lang}")
+
+        if detected_lang != "en":
+            print(f"[{title}] Skipping non-English episode.\n")
+            return
+
+        transcript = " ".join(seg.text for seg in segments)
+
+    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
     print(f"[{title}] Total time {time.time() - start:.2f}s")
 
+    # Save to file
+    filename = safe_filename(f"{title}.txt")
+    with open(os.path.join("transcripts", filename), "w", encoding="utf-8") as f:
+        f.write(transcript)
 
 # --- MAIN ---
 

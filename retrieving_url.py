@@ -60,6 +60,7 @@ simplified_podcasts = [
     for feed in trending_podcasts
 ]
 
+
 #Save to JSON file
 output_path = "top_podcasts.json"
 with open(output_path, "w") as f:
