@@ -79,16 +79,16 @@ spark-status:
 
 # --- Spark Job Commands for one-shot container ---
 spark-up-metadata:
-	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-metadata
+	docker compose -p spark-jobs -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-metadata
 
 spark-up-transcripts-en:
-	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-en
+	docker compose -p spark-jobs -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-en
 
 spark-up-transcripts-foreign:
-	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-foreign
+	docker compose -p spark-jobs -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-transcripts-foreign
 
 spark-up-summary:
-	docker compose -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-summary
+	docker compose -p spark-jobs -f $(SPARK_PATH)/docker-compose.jobs.yml run --rm spark-job-summary
 
 # --- General Aggregate Commands ---
 up: kafka-up mongo-up spark-up

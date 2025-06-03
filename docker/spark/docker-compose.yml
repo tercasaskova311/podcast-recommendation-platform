@@ -46,8 +46,8 @@ services:
     environment:
       - PYSPARK_SUBMIT_ARGS=--master spark://spark-master:7077 pyspark-shell
     volumes:
-      - ./data:/data
-      - ./spark:/app
+      - ${PWD}/data:/data
+      - ${PWD}/spark:/app
     working_dir: /app
     restart: always
     depends_on:
