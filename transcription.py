@@ -10,8 +10,8 @@ from faster_whisper import WhisperModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- CONFIG --------------------------------------------------------------------------------
-MAX_WORKERS = 4
-MODEL_SIZE = "tiny.en"
+MAX_WORKERS = 2
+MODEL_SIZE = "tiny"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
@@ -35,12 +35,11 @@ def convert_to_wav(audio_buffer):
     return audio
 
 # --- TRANSCRIPTION ------------------------------------------------------------------------
-
-
 def transcribe_episode(episode):
     start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
+    safe_title = safe_filename(title)
 
     print(f"[{title}] Starting")
 
@@ -49,21 +48,38 @@ def transcribe_episode(episode):
     audio_stream = stream_download(url)
     print(f"[{title}] Download took {time.time() - dl_start:.2f}s")
 
-    # Convert
+    # Convert to mono 16kHz WAV
     conv_start = time.time()
     wav_data = convert_to_wav(audio_stream)
     print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
 
-    # Write to temp and transcribe
+    # Write to temp file and transcribe
     trans_start = time.time()
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        tmp.write(wav_data)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav_data.export(tmp.name, format="wav")
         tmp.flush()
-        segments, _ = model.transcribe(tmp.name)
-        transcript = " ".join(seg.text for seg in segments)
-    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
+        tmp_path = tmp.name
 
+    segments, _ = model.transcribe(tmp.name)
+
+
+    os.remove(tmp_path)  # cleanup temp file
+    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
     print(f"[{title}] Total time {time.time() - start:.2f}s")
+
+    # Create simple transcript string
+    transcript = " ".join(seg.text for seg in segments)
+
+    # Save plain text to file (no JSON key)
+    output_dir = "transcripts"
+    os.makedirs(output_dir, exist_ok=True)
+
+    json_path = os.path.join(output_dir, safe_filename(title) + ".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(transcript, f, ensure_ascii=False)
+
+    print(f"[{title}] ✅ Saved to {json_path}")
+
 
 # --- MAIN ----------------------------------------------------------------------------------
 
