@@ -9,14 +9,14 @@ from pydub import AudioSegment
 from faster_whisper import WhisperModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
 # --- CONFIG --------------------------------------------------------------------------------
-MAX_WORKERS = 2
-MODEL_SIZE = "tiny"
+MAX_WORKERS = 4
+MODEL_SIZE = "tiny.en"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
-# Save file names corectly => get url => convert to wav bytes----------------------------------
+# --- HELPERS -------------------------------------------------------------------------------
+
 def safe_filename(name):
     return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
@@ -29,41 +29,34 @@ def stream_download(url):
         buffer.seek(0)
         return buffer
 
-def convert_to_wav_bytes(audio_buffer):
+def convert_to_wav(audio_buffer):
     audio = AudioSegment.from_file(audio_buffer)
     audio = audio.set_frame_rate(16000).set_channels(1)
-    wav_io = io.BytesIO()
-    audio.export(wav_io, format="wav")
-    return wav_io.getvalue()
+    return audio
 
-# TRANSCRIBE -----------------------------------------------------------------------
-import time
+# --- TRANSCRIPTION ------------------------------------------------------------------------
 
 def transcribe_episode(episode):
     start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
-
-    print(f"[{title}] Starting")
+    print(f"\n[{title}] Starting")
 
     # Download
     dl_start = time.time()
     audio_stream = stream_download(url)
     print(f"[{title}] Download took {time.time() - dl_start:.2f}s")
 
-    # Convert
+    # Convert to AudioSegment
     conv_start = time.time()
-    wav_data = convert_to_wav_bytes(audio_stream)
+    audio = convert_to_wav(audio_stream)
     print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
 
-    # Write to temp and transcribe
-    trans_start = time.time()
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        tmp.write(wav_data)
-        tmp.flush()
-
-        # detect language
-        segments, info = model.transcribe(tmp.name, beam_size=5, language=None)
+    # --- STEP 1: Language detection from first 30s snippet
+    snippet = audio[:30 * 1000]  # First 30 seconds
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as temp_snippet:
+        snippet.export(temp_snippet.name, format="wav")
+        _, info = model.transcribe(temp_snippet.name, beam_size=1, language=None)
         detected_lang = info.language
         print(f"[{title}] Detected language: {detected_lang}")
 
@@ -71,17 +64,20 @@ def transcribe_episode(episode):
             print(f"[{title}] Skipping non-English episode.\n")
             return
 
+    # --- STEP 2: Full transcription
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+        audio.export(tmp.name, format="wav")
+        segments, _ = model.transcribe(tmp.name, beam_size=5, language="en")
         transcript = " ".join(seg.text for seg in segments)
 
-    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
-    print(f"[{title}] Total time {time.time() - start:.2f}s")
+    print(f"[{title}] Total time: {time.time() - start:.2f}s")
 
     # Save to file
     filename = safe_filename(f"{title}.txt")
     with open(os.path.join("transcripts", filename), "w", encoding="utf-8") as f:
         f.write(transcript)
 
-# --- MAIN ---
+# --- MAIN ----------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     start = time.time()

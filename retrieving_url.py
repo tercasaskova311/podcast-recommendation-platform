@@ -3,7 +3,6 @@ import hashlib
 import time
 import json
 import time
-import whisper
 import os
 import subprocess
 from pathlib import Path
