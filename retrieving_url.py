@@ -46,7 +46,13 @@ trending_data = response.json()
 
 #Extract relevant fields- only retrievable meta data from podcstindex
 trending_data = response.json()
-trending_podcasts = trending_data.get("feeds", [])
+# After fetching trending podcasts
+trending_podcasts = response.json().get("feeds", [])
+
+# Filter English podcasts
+english_podcasts = [feed for feed in trending_podcasts if feed.get("language", "").lower() == "en"]
+
+print(f"Retrieved {len(english_podcasts)} English podcasts.")
 
 simplified_podcasts = [
     {
@@ -56,9 +62,8 @@ simplified_podcasts = [
         "id": feed.get("id"),
         "author": feed.get("author"),
     }
-    for feed in trending_podcasts
+    for feed in english_podcasts
 ]
-
 
 #Save to JSON file
 output_path = "top_podcasts.json"

@@ -36,46 +36,34 @@ def convert_to_wav(audio_buffer):
 
 # --- TRANSCRIPTION ------------------------------------------------------------------------
 
+
 def transcribe_episode(episode):
     start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
-    print(f"\n[{title}] Starting")
+
+    print(f"[{title}] Starting")
 
     # Download
     dl_start = time.time()
     audio_stream = stream_download(url)
     print(f"[{title}] Download took {time.time() - dl_start:.2f}s")
 
-    # Convert to AudioSegment
+    # Convert
     conv_start = time.time()
-    audio = convert_to_wav(audio_stream)
+    wav_data = convert_to_wav(audio_stream)
     print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
 
-    # --- STEP 1: Language detection from first 30s snippet
-    snippet = audio[:30 * 1000]  # First 30 seconds
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as temp_snippet:
-        snippet.export(temp_snippet.name, format="wav")
-        _, info = model.transcribe(temp_snippet.name, beam_size=1, language=None)
-        detected_lang = info.language
-        print(f"[{title}] Detected language: {detected_lang}")
-
-        if detected_lang != "en":
-            print(f"[{title}] Skipping non-English episode.\n")
-            return
-
-    # --- STEP 2: Full transcription
+    # Write to temp and transcribe
+    trans_start = time.time()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        audio.export(tmp.name, format="wav")
-        segments, _ = model.transcribe(tmp.name, beam_size=5, language="en")
+        tmp.write(wav_data)
+        tmp.flush()
+        segments, _ = model.transcribe(tmp.name)
         transcript = " ".join(seg.text for seg in segments)
+    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
 
-    print(f"[{title}] Total time: {time.time() - start:.2f}s")
-
-    # Save to file
-    filename = safe_filename(f"{title}.txt")
-    with open(os.path.join("transcripts", filename), "w", encoding="utf-8") as f:
-        f.write(transcript)
+    print(f"[{title}] Total time {time.time() - start:.2f}s")
 
 # --- MAIN ----------------------------------------------------------------------------------
 
