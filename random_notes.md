@@ -87,3 +87,39 @@ The advantages of this solution include:
 - A flexible schema, which is ideal for evolving data models
 - Fast read performance, making it suitable for analytics and recommendation queries
 - Horizontal scalability through built-in sharding capabilities (not implemented in our project)
+
+
+## SPARK PART
+The core idea is to create a Spark cluster with a Spark master acting as the cluster manager (responsible for resource management and job scheduling) and multiple workers executing the jobs.
+
+For our project, we simulate a scalable system using 1 master and 3 workers.
+By connecting to localhost:8080, we can access the Spark Master Web UI to monitor the state of the cluster.
+
+### Why Spark?
+Apache Spark allows us to decouple the computation engine (which performs the actual operations) from the client (the driver program that submits the jobs). This separation is useful because we chose to use Python for the driver, but in the future, we could switch to a different language without modifying the Spark cluster itself.
+
+### Why not Hadoop?
+We opted for Spark instead of Hadoop because:
+
+- Spark is significantly faster, thanks to in-memory processing
+- Spark has native support for streaming, making it easier to unify batch and streaming workloads
+
+### Parallelization and Partitioning
+Using Kafka partitions, we can parallelize data processing in Spark.
+For example, the **user-events-stream** topic has 24 partitions, which allows Spark to execute up to 24 parallel tasks to read and process the data efficiently.
+
+### Job Scheduling Strategy
+To make our system as efficient as possible, we avoid keeping batch services running all the time. Since new episodes are ingested only once a day, batch jobs are scheduled to run daily and process only the new data.
+
+### Execution Strategy
+We created a general script called main.py that, based on a parameter, selects which job to run.
+
+- Streaming job (user-events): Runs continuously in a dedicated Docker container, always ready to consume data from Kafka.
+
+- Batch jobs (transcripts-foreign, transcripts-en, podcast-metadata): Run once per day in separate Docker containers and each batch job has its own driver program that starts and stops as needed.
+
+- Summary job: Reads processed data directly from Delta Lake (not Kafka) to compute aggregates and summaries for dashboards and recommendations. It also runs in its own Docker container.
+
+To support scalability, the Spark workers can be scaled horizontally by adding more containers. Each driver program runs independently per job.
+
+For the batch and summary jobs, we use Docker container templates, built once for efficiency. These containers are instantiated only when needed, minimizing resource usage.
