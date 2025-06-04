@@ -6,10 +6,6 @@
 env/
 venv/
 
-# Hugging Face token file (if using dotenv)
-.env
-
-# Transcripts folder
 transcripts/
 
 # Temp files
@@ -17,10 +13,3 @@ transcripts/
 *.mp3
 *.flac
 *.tmp
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.ipynb_checkpoints
