@@ -10,10 +10,10 @@ from multiprocessing import Pool, current_process
 
 # --- CONFIG ---
 MAX_WORKERS = 1  # Usually 1 for GPU; more if CPU only
-MODEL_SIZE = "tiny.en"
+MODEL_SIZE = "tiny.en" #lightweight model, faster then the model for all languages
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
-os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1" # reduce parallel thread conflicts
 
 # Global model variable inside each process
 model = None
@@ -27,20 +27,20 @@ def safe_filename(name):
     return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
 def stream_download(url): 
-    with requests.get(url, stream=True) as r:
+    with requests.get(url, stream=True) as r: #streaming instead of downloading data from url 
         r.raise_for_status()
-        buffer = io.BytesIO()
+        buffer = io.BytesIO() #create temporary - to hold the audio
         for chunk in r.iter_content(chunk_size=8192):
             buffer.write(chunk)
         buffer.seek(0)
         return buffer
 
 def convert_to_wav(audio_buffer):
-    audio = AudioSegment.from_file(audio_buffer)
-    audio = audio.set_frame_rate(16000).set_channels(1)
+    audio = AudioSegment.from_file(audio_buffer) #holding audio files
+    audio = audio.set_frame_rate(16000).set_channels(1) #can be changed - adjusting the audio quality for transcribtion
     return audio
 
-def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
+def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000): #processing whole podcast in once is computatinaly very heavy, especially for longer audio
     global model
     if model is None:
         raise RuntimeError("Model not initialized in worker process")
@@ -88,6 +88,7 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
 
     print(f"[{title}] ✅ Done in {time.time() - start:.2f}s | Saved to {json_path}")
 
+#=========== MAIN ====================
 if __name__ == "__main__":
     start = time.time()
 
