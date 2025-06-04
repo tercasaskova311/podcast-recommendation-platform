@@ -1,67 +1,45 @@
 # Voice-to-Text Transcription Script
 
-This script automates the process of downloading podcast episodes, converting audio to the appropriate format, and transcribing their spoken content using the Whisper speech-to-text model.
+## Overview  
+This script automates the process of downloading podcast episodes, converting audio to the proper format, and transcribing spoken content using the Whisper speech-to-text model.
+
+We chose **Podcast Index metadata** because it offers an **open API with trending podcast data**. Most major podcast providers restrict API access, making Podcast Index one of the few open-source platforms for podcast metadata.
+
+The transcription engine is based on the **fast-whisper** model—a fine-tuned, efficient implementation of OpenAI’s Whisper model. While some other services (e.g., AssemblyAI) provide faster or lighter transcription APIs, they often come with API restrictions or costs. Fast-whisper offers a good balance between speed and accuracy with local deployment.
 
 ---
 
 ## Inputs  
-- **top_podcasts.json**  
-  Contains podcast metadata from the Podcast Index API, including fields like `title`, `description`, `id`, and `author`.
+- **`top_podcasts.json`**  
+  Contains podcast metadata from Podcast Index API: `title`, `description`, `id`, `author`, etc.
 
-- **top_episodes.json**  
-  Contains episode metadata, including `audio_url`, `title`, and `id`.
+- **`top_episodes.json`**  
+  Contains episode metadata used in transcription: `audio_url`, `title`, `id`, and other relevant fields.
 
 ---
 
 ## Outputs  
-- Transcripts are saved as JSON files inside the `transcripts/` directory.
+- Transcripts are saved as JSON files inside the `transcripts/` directory, named by sanitized episode titles.
 
 ---
 
 ## Key Features  
-- Fetches trending podcast episodes based on recent listener engagement, recent uploads, total plays, etc.  
-- Use Hugging Face’s Whisper speech-to-text model. 
-- Parallel processing with configurable worker count for faster transcription.
+- Fetches trending podcast episodes based on metrics like recent listens, uploads, and total plays.  
+- Uses Hugging Face’s **fast-whisper** speech-to-text model for efficient local transcription.  
+- Supports parallel processing with configurable worker count to transcribe multiple episodes simultaneously.
 
 ---
 
 ## Setup & Configuration  
 
 - **Authentication:**  
-  Env variable `HUGGINGFACE_TOKEN` with Hugging Face token.
+  Set environment variable `HUGGINGFACE_TOKEN` with your Hugging Face API token.
 
 - **Model Size:**  
-  Whisper model size (`tiny`, `base`, `small`, etc.) speed vs. accuracy.
+  Select Whisper model size (`tiny`, `base`, `small`, etc.) to balance speed and transcription accuracy.
 
 - **Concurrency:**  
-  Adjust `MAX_WORKERS` to set how many episodes are processed in parallel (speed).
-
----
-
-## How It Works 
-
-1. **Load Episode Metadata:**  
-   Reads `top_episodes.json` to get episode details, including audio URLs.
-
-2. **Download Audio:**  
-   Downloads audio files in chunks for efficient handling of large files.
-
-3. **Convert Audio Format:**  
-   Converts audio to WAV, mono channel, 16kHz sample rate — the required format for Whisper transcription.
-
-4. **Handle Temporary Files:**  
-   Saves the converted audio temporarily on disk for processing.
-
-5. **Transcribe Audio:**  
-   Uses the Whisper model to convert audio to text, capturing spoken content.
-
-6. **Assemble Transcript:**  
-   Combines transcribed segments into a full transcript string.
-
-7. **Parallel Processing:**  
-   Uses `ThreadPoolExecutor` to process multiple episodes simultaneously, controlled by the `MAX_WORKERS` setting (default: 2).
-
----
+  Configure `MAX_WORKERS` to control how many episodes are processed in parallel (default is 2).
 
 ## Installation Instructions
 
@@ -76,6 +54,32 @@ sudo apt update && sudo apt install ffmpeg
 
 2. **If faster-whisper install fails (alternative method):** 
 ``` pip install git+https://github.com/guillaumekln/faster-whisper.git
+---
 
+## How It Works  
 
+The pipeline consists of these stages:  
+**Download → Convert → Chunk → Transcribe → Save**
 
+1. **Load Episode Metadata**  
+   Reads episode details, including audio URLs, from `top_episodes.json`.
+
+2. **Download Audio**  
+   Downloads audio in chunks for efficient memory and network usage.
+
+3. **Convert Audio Format**  
+   Converts audio to WAV format, with mono channel and 16kHz sample rate—the input format required by Whisper.
+
+4. **Temporary File Handling**  
+   Saves chunks as temporary WAV files for transcription.
+
+5. **Transcribe Audio**  
+   Processes audio chunks with the Whisper model to generate text transcripts.
+
+6. **Assemble Transcript**  
+   Combines transcribed chunks into a full episode transcript.
+
+7. **Parallel Processing**  
+   Uses `ProcessPoolExecutor` with configurable `MAX_WORKERS` to transcribe multiple episodes concurrently.
+
+---

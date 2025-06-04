@@ -2,57 +2,60 @@ import os
 import io
 import json
 import time
-import tempfile
 import requests
 import torch
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import Pool, current_process
 
-# --- CONFIG --------------------------------------------------------------------------------
-MAX_WORKERS = 2 #episodes transcribed at once..
-MODEL_SIZE = "tiny.en" #lightweight model, faster then the model for all languages
+# --- CONFIG ---
+MAX_WORKERS = 1  # Usually 1 for GPU; more if CPU only
+MODEL_SIZE = "tiny.en"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
-os.environ["OMP_NUM_THREADS"] = "1"  # reduce parallel thread conflicts
+os.environ["OMP_NUM_THREADS"] = "1"
 
-# --- HELPERS -------------------------------------------------------------------------------
+# Global model variable inside each process
+model = None
+
+def init_model():
+    global model
+    print(f"[{current_process().name}] Loading model on {DEVICE}")
+    model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 
 def safe_filename(name):
     return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
 def stream_download(url): 
-    with requests.get(url, stream=True) as r: #streaming instead of downloading data from url
+    with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        buffer = io.BytesIO() #create temporary - to hold the audio
-        
-        for chunk in r.iter_content(chunk_size=8192): #loop through chunks - chunks are little faster to process
+        buffer = io.BytesIO()
+        for chunk in r.iter_content(chunk_size=8192):
             buffer.write(chunk)
-        
         buffer.seek(0)
         return buffer
 
-def convert_to_wav(audio_buffer): 
-    audio = AudioSegment.from_file(audio_buffer) #holding audio files
-    audio = audio.set_frame_rate(16000).set_channels(1) #resample 16k Hz - can be change for better quality
+def convert_to_wav(audio_buffer):
+    audio = AudioSegment.from_file(audio_buffer)
+    audio = audio.set_frame_rate(16000).set_channels(1)
     return audio
 
+def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
+    global model
+    if model is None:
+        raise RuntimeError("Model not initialized in worker process")
 
-# --- TRANSCRIPTION ------------------------------------------------------------------------
-def transcribe_episode(episode, chunk_length_ms=5 * 60 * 1000): #better to split longer audio in chunks, because otherwise whisper process it in once and sometimes it crush the memory, this should be solid
     start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
-    safe_title = safe_filename(title)
-
     print(f"[{title}] Starting")
 
-    # Download
+    # Download audio stream
     dl_start = time.time()
     audio_stream = stream_download(url)
     print(f"[{title}] Download took {time.time() - dl_start:.2f}s")
 
-    # Convert to mono 16kHz WAV
+    # Convert audio
     conv_start = time.time()
     wav_data = convert_to_wav(audio_stream)
     print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
@@ -62,24 +65,21 @@ def transcribe_episode(episode, chunk_length_ms=5 * 60 * 1000): #better to split
 
     all_segments = []
 
+    # Transcribe chunks from memory (using WhisperModel API directly from bytes)
     for idx, chunk in enumerate(chunks):
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            chunk.export(tmp.name, format="wav")
-            tmp.flush()
-            chunk_path = tmp.name
+        # Export chunk to bytes buffer instead of temp file
+        buf = io.BytesIO()
+        chunk.export(buf, format="wav")
+        buf.seek(0)
 
-        try:
-            segments, _ = model.transcribe(chunk_path, beam_size=1)
-            all_segments.extend(segments)
-        finally:
-            os.remove(chunk_path)
-
+        # Transcribe from in-memory wav bytes
+        segments, _ = model.transcribe(buf, beam_size=1)
+        all_segments.extend(segments)
         print(f"[{title}] ⏱️ Chunk {idx+1}/{len(chunks)} transcribed")
 
-    # Create full transcript
     transcript = " ".join(seg.text for seg in all_segments)
 
-    # Save
+    # Save transcript
     output_dir = "transcripts"
     os.makedirs(output_dir, exist_ok=True)
     json_path = os.path.join(output_dir, safe_filename(title) + ".json")
@@ -87,10 +87,6 @@ def transcribe_episode(episode, chunk_length_ms=5 * 60 * 1000): #better to split
         json.dump(transcript, f, ensure_ascii=False)
 
     print(f"[{title}] ✅ Done in {time.time() - start:.2f}s | Saved to {json_path}")
-
-
-
-# --- MAIN ----------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     start = time.time()
@@ -100,13 +96,10 @@ if __name__ == "__main__":
 
     os.makedirs("transcripts", exist_ok=True)
 
-    print(f"[MODEL] Loading model '{MODEL_SIZE}' on {DEVICE}")
-    model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+    # Use multiprocessing Pool with initializer to share model per worker
+    from multiprocessing import Pool
 
-    print(f"[THREADING] Using {MAX_WORKERS} workers")
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(transcribe_episode, ep) for ep in episodes]
-        for future in as_completed(futures):
-            future.result()
+    with Pool(processes=MAX_WORKERS, initializer=init_model) as pool:
+        pool.map(transcribe_episode, episodes)
 
-    print(f"\n Done in {time.time() - start:.2f} seconds")
+    print(f"\nDone in {time.time() - start:.2f} seconds")
