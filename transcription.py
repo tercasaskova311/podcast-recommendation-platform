@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- CONFIG --------------------------------------------------------------------------------
 MAX_WORKERS = 2
-MODEL_SIZE = "tiny"
+MODEL_SIZE = "tiny.en"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
@@ -62,7 +62,6 @@ def transcribe_episode(episode):
 
     segments, _ = model.transcribe(tmp.name)
 
-
     os.remove(tmp_path)  # cleanup temp file
     print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
     print(f"[{title}] Total time {time.time() - start:.2f}s")
@@ -70,10 +69,10 @@ def transcribe_episode(episode):
     # Create simple transcript string
     transcript = " ".join(seg.text for seg in segments)
 
-    # Save plain text to file (no JSON key)
     output_dir = "transcripts"
     os.makedirs(output_dir, exist_ok=True)
 
+    #save json
     json_path = os.path.join(output_dir, safe_filename(title) + ".json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(transcript, f, ensure_ascii=False)
