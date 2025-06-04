@@ -7,13 +7,14 @@ import requests
 import torch
 from pydub import AudioSegment
 from faster_whisper import WhisperModel
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # --- CONFIG --------------------------------------------------------------------------------
 MAX_WORKERS = 2 #episodes transcribed at once..
 MODEL_SIZE = "tiny.en" #lightweight model, faster then the model for all languages
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
+os.environ["OMP_NUM_THREADS"] = "1"  # reduce parallel thread conflicts
 
 # --- HELPERS -------------------------------------------------------------------------------
 
@@ -68,7 +69,7 @@ def transcribe_episode(episode, chunk_length_ms=5 * 60 * 1000): #better to split
             chunk_path = tmp.name
 
         try:
-            segments, _ = model.transcribe(chunk_path)
+            segments, _ = model.transcribe(chunk_path, beam_size=1)
             all_segments.extend(segments)
         finally:
             os.remove(chunk_path)
@@ -103,7 +104,7 @@ if __name__ == "__main__":
     model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 
     print(f"[THREADING] Using {MAX_WORKERS} workers")
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [executor.submit(transcribe_episode, ep) for ep in episodes]
         for future in as_completed(futures):
             future.result()

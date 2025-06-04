@@ -1,6 +1,5 @@
 # Voice-to-Text Transcription Script
 
-## Overview  
 This script automates the process of downloading podcast episodes, converting audio to the appropriate format, and transcribing their spoken content using the Whisper speech-to-text model.
 
 ---
@@ -63,5 +62,20 @@ This script automates the process of downloading podcast episodes, converting au
    Uses `ThreadPoolExecutor` to process multiple episodes simultaneously, controlled by the `MAX_WORKERS` setting (default: 2).
 
 ---
+
+## Installation Instructions
+
+1. **Install `ffmpeg` (required by `pydub`)**
+
+- macOS (Homebrew):
+  ```bash
+  brew install ffmpeg
+- Ubuntu/Debian:
+sudo apt update && sudo apt install ffmpeg
+
+
+2. **If faster-whisper install fails (alternative method):** 
+``` pip install git+https://github.com/guillaumekln/faster-whisper.git
+
 
 
