@@ -1,0 +1,15 @@
+.DS_Store
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+
+transcripts/
+
+# Temp files
+*.wav
+*.mp3
+*.flac
+*.tmp
