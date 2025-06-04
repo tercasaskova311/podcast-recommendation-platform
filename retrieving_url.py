@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 import sys
 import tempfile
+from langdetect import detect
+from langdetect.lang_detect_exception import LangDetectException
 
 
 #====== API PODCASTINDEX ==============
@@ -29,7 +31,7 @@ headers = {
 
 #====== RETRIEVED TOP__ TRENDING PODCASTS =========
 url = "https://api.podcastindex.org/api/1.0/podcasts/trending"
-params = {"max": 50}  # Get up to 200 trending podcasts
+params = {"max": 200}  # Get up to 200 trending podcasts
 
 response = requests.get(url, headers=headers, params=params)
 trending_podcasts = response.json().get("feeds", [])
@@ -50,7 +52,21 @@ trending_data = response.json()
 trending_podcasts = response.json().get("feeds", [])
 
 # Filter English podcasts
-english_podcasts = [feed for feed in trending_podcasts if feed.get("language", "").lower() == "en"]
+
+def is_english(feed):
+    # Firstly just using metadata - it is not 100 % accurate...
+    if feed.get("language", "").lower() == "en":
+        return True
+
+    #check title + description
+    try:
+        text = f"{feed.get('title', '')} {feed.get('description', '')}" #good to check description, sometimes they have eng names but are non eng
+        detected_lang = detect(text)
+        return detected_lang == "en"
+    except LangDetectException:
+        return False
+
+english_podcasts = [feed for feed in trending_podcasts if is_english(feed)]
 
 print(f"Retrieved {len(english_podcasts)} English podcasts.")
 

@@ -10,7 +10,7 @@ from faster_whisper import WhisperModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- CONFIG --------------------------------------------------------------------------------
-MAX_WORKERS = 2
+MAX_WORKERS = 3
 MODEL_SIZE = "tiny.en"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
@@ -33,6 +33,8 @@ def convert_to_wav(audio_buffer):
     audio = AudioSegment.from_file(audio_buffer)
     audio = audio.set_frame_rate(16000).set_channels(1)
     return audio
+
+
 
 # --- TRANSCRIPTION ------------------------------------------------------------------------
 def transcribe_episode(episode):
