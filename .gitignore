@@ -4,5 +4,4 @@ whisper_env/
 
 transcripts/
 
-*.wav
-*.mp3
+
