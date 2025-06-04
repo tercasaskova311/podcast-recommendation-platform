@@ -1,0 +1,2 @@
+download_transcripts_interval: "0 1 * * *"  # Main trigger time
+summary_interval: "@hourly"

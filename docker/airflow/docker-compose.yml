@@ -1,0 +1,65 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB_AIRFLOW}
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+
+  airflow-webserver:
+    image: apache/airflow:2.9.0
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+      - AIRFLOW__WEBSERVER__RBAC=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/airflow/spark_jobs
+      - ${PWD}/scripts:/opt/airflow/scripts
+    ports:
+      - "8081:8080"
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.0
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/airflow/spark_jobs
+      - ${PWD}/scripts:/opt/airflow/scripts
+    command: scheduler
+
+  airflow-init:
+    image: apache/airflow:2.9.0
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/airflow/spark_jobs
+      - ${PWD}/scripts:/opt/airflow/scripts
+    entrypoint: /bin/bash
+    command: -c "airflow db init && airflow users create --username ${POSTGRES_USER} --password ${POSTGRES_PASSWORD} --firstname ${AIRFLOW_ADMIN_USER_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_USER_LASTNAME} --role ${AIRFLOW_ADMIN_USER_ROLE} --email ${AIRFLOW_ADMIN_USER_EMAIL} &&
+        airflow connections add spark_default \
+      --conn-type spark \
+      --conn-host spark-master \
+      --conn-port 7077"
+
+volumes:
+  postgres-db-volume:
