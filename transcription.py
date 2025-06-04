@@ -10,8 +10,8 @@ from faster_whisper import WhisperModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- CONFIG --------------------------------------------------------------------------------
-MAX_WORKERS = 3
-MODEL_SIZE = "tiny.en"
+MAX_WORKERS = 2 #episodes transcribed at once..
+MODEL_SIZE = "tiny.en" #lightweight model, faster then the model for all languages
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 
@@ -20,24 +20,25 @@ COMPUTE_TYPE = "float16" if DEVICE == "cuda" else "int8"
 def safe_filename(name):
     return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
-def stream_download(url):
-    with requests.get(url, stream=True) as r:
+def stream_download(url): 
+    with requests.get(url, stream=True) as r: #streaming instead of downloading data from url
         r.raise_for_status()
-        buffer = io.BytesIO()
-        for chunk in r.iter_content(chunk_size=8192):
+        buffer = io.BytesIO() #create temporary - to hold the audio
+        
+        for chunk in r.iter_content(chunk_size=8192): #loop through chunks - chunks are little faster to process
             buffer.write(chunk)
+        
         buffer.seek(0)
         return buffer
 
-def convert_to_wav(audio_buffer):
-    audio = AudioSegment.from_file(audio_buffer)
-    audio = audio.set_frame_rate(16000).set_channels(1)
+def convert_to_wav(audio_buffer): 
+    audio = AudioSegment.from_file(audio_buffer) #holding audio files
+    audio = audio.set_frame_rate(16000).set_channels(1) #resample 16k Hz - can be change for better quality
     return audio
 
 
-
 # --- TRANSCRIPTION ------------------------------------------------------------------------
-def transcribe_episode(episode):
+def transcribe_episode(episode, chunk_length_ms=5 * 60 * 1000): #better to split longer audio in chunks, because otherwise whisper process it in once and sometimes it crush the memory, this should be solid
     start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
@@ -55,31 +56,37 @@ def transcribe_episode(episode):
     wav_data = convert_to_wav(audio_stream)
     print(f"[{title}] Conversion took {time.time() - conv_start:.2f}s")
 
-    # Write to temp file and transcribe
-    trans_start = time.time()
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        wav_data.export(tmp.name, format="wav")
-        tmp.flush()
-        tmp_path = tmp.name
+    # Chunk audio
+    chunks = [wav_data[i:i+chunk_length_ms] for i in range(0, len(wav_data), chunk_length_ms)]
 
-    segments, _ = model.transcribe(tmp.name)
+    all_segments = []
 
-    os.remove(tmp_path)  # cleanup temp file
-    print(f"[{title}] Transcription took {time.time() - trans_start:.2f}s")
-    print(f"[{title}] Total time {time.time() - start:.2f}s")
+    for idx, chunk in enumerate(chunks):
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            chunk.export(tmp.name, format="wav")
+            tmp.flush()
+            chunk_path = tmp.name
 
-    # Create simple transcript string
-    transcript = " ".join(seg.text for seg in segments)
+        try:
+            segments, _ = model.transcribe(chunk_path)
+            all_segments.extend(segments)
+        finally:
+            os.remove(chunk_path)
 
+        print(f"[{title}] ⏱️ Chunk {idx+1}/{len(chunks)} transcribed")
+
+    # Create full transcript
+    transcript = " ".join(seg.text for seg in all_segments)
+
+    # Save
     output_dir = "transcripts"
     os.makedirs(output_dir, exist_ok=True)
-
-    #save json
     json_path = os.path.join(output_dir, safe_filename(title) + ".json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(transcript, f, ensure_ascii=False)
 
-    print(f"[{title}] ✅ Saved to {json_path}")
+    print(f"[{title}] ✅ Done in {time.time() - start:.2f}s | Saved to {json_path}")
+
 
 
 # --- MAIN ----------------------------------------------------------------------------------
