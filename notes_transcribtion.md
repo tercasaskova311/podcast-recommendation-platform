@@ -13,8 +13,8 @@ The transcription engine is based on the **fast-whisper** model—a fine-tuned, 
 - **`top_podcasts.json`**  
   Contains podcast metadata from Podcast Index API: `title`, `description`, `id`, `author`, etc.
 
-- **`top_episodes.json`**  
-  Contains episode metadata used in transcription: `audio_url`, `title`, `id`, and other relevant fields.
+- **`episodes_url.json`**  
+  Retrieved the  `audio_url` for given podcast + contains othermeta data.
 
 ---
 
@@ -62,7 +62,7 @@ The pipeline consists of these stages:
 **Download → Convert → Chunk → Transcribe → Save**
 
 1. **Load Episode Metadata**  
-   Reads episode details, including audio URLs, from `top_episodes.json`.
+   Reads episode details, including audio URLs, from `episodes_url.json`.
 
 2. **Download Audio**  
    Downloads audio in chunks for efficient memory and network usage.
