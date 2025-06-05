@@ -45,10 +45,20 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000): #processing whol
     if model is None:
         raise RuntimeError("Model not initialized in worker process")
 
-    start = time.time()
     title = episode.get("episode_title", "unknown")
     url = episode.get("audio_url")
-    print(f"[{title}] Starting")
+    
+    filename = safe_filename(title)
+    output_dir = "transcripts"
+    json_path = os.path.join(output_dir, filename + ".json")
+    
+    if os.path.exists(json_path):
+        print(f"[{title}] ⏩ Already processed. Skipping.")
+        return
+    
+    start = time.time()
+    print(f"[{title}] 🎙️ Starting")
+
 
     # Download audio stream
     dl_start = time.time()
