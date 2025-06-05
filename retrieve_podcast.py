@@ -71,7 +71,7 @@ print(f"✅ Saved {len(simplified_podcasts)} podcasts to top_podcasts.json")
 
 #====== STEP 4: FETCH EPISODES (LIMIT = 1) PER PODCAST ==========
 
-all_episodes = []
+all_episodes = [] #we need to fetch, because we only  get url of the podcast main side not give episode from api request
 
 for podcast in simplified_podcasts:
     feed_id = podcast.get("id")
