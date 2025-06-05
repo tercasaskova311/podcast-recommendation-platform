@@ -1,15 +1,7 @@
 .DS_Store
 
-# Virtual environments
-.env/
-.venv/
-env/
-venv/
+whisper_env/
 
 transcripts/
 
-# Temp files
-*.wav
-*.mp3
-*.flac
-*.tmp
+
