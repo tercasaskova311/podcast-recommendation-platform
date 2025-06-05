@@ -102,7 +102,7 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000): #processing whol
 if __name__ == "__main__":
     start = time.time()
 
-    with open("top_episodes.json", "r") as f:
+    with open("episode_url.json", "r") as f:
         episodes = json.load(f)
 
     os.makedirs("transcripts", exist_ok=True)
