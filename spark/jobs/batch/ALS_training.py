@@ -5,12 +5,11 @@ import time
 spark = SparkSession.builder.appName("ALSTraining").getOrCreate()
 
 # === Paths === probably solved by pipeline script?
-# Path to aggregated engagement scores computed in a process_user_events.py pipeline
+# Path to aggregated engagement scores computed in a process_user_events.py 
 # This data will serve as the "ratings" input for ALS.
 #ENGAGEMENT_AGG_PATH = "/tmp/engagement_aggregates"
 
-# Path where the trained ALS model will be saved for downstream use.
-ALS_MODEL_PATH = "/models/als_model"
+#ALS_MODEL_PATH = "/models/als_model"
 
 
 def train_als_model():
