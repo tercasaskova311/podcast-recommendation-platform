@@ -7,9 +7,9 @@ import time
 
 spark = SparkSession.builder.appName("HybridRecommendation").getOrCreate()
 
-#====== PATH ==============
-ALS_MODEL_PATH = "/models/als_model" #pretrained ALS model from ALS_training.py
-SIMILARITY_PATH = "/output/podcast_similarities" #precompute podcast similarities in process_transcrip.py 
+#====== PATH ============== I think this is probably handled by pipelines right? 
+#ALS_MODEL_PATH = "/models/als_model" #pretrained ALS model from ALS_training.py
+#SIMILARITY_PATH = "/output/podcast_similarities" #precompute podcast similarities in process_transcrip.py 
 
 
 #===== RECOMMENDATION COMPUTATION ============
