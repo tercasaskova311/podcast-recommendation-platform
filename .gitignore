@@ -3,3 +3,5 @@ tmp/
 .env
 .env.production
 __pycache__
+whisper_env/
+transcripts/

@@ -1,25 +1,21 @@
 import argparse
 
 from spark.pipelines import (
-    metadata_pipeline,
-    transcripts_en_pipeline,
+    episode_raw_pipeline,
     streaming_pipeline,
     summary_pipeline
 )
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", choices=[
-    "metadata",
-    "transcripts-en",
+    "raw-episode",
     "streaming",
     "summary"
 ], required=True)
 args = parser.parse_args()
 
-if args.job == "metadata":
-    metadata_pipeline.run_metadata_pipeline()
-elif args.job == "transcripts-en":
-    transcripts_en_pipeline.run_transcripts_en_pipeline()
+if args.job == "raw-episode":
+    episode_raw_pipeline.run_raw_episode_pipeline()
 elif args.job == "streaming":
     streaming_pipeline.run_streaming_pipeline()
 elif args.job == "summary":

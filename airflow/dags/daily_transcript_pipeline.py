@@ -3,6 +3,8 @@ from airflow.operators.bash import BashOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from datetime import datetime
 import yaml
+from datetime import timedelta
+
 
 with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
@@ -15,25 +17,28 @@ with DAG(
     tags=['batch'],
 ) as dag:
 
-    download_transcripts = BashOperator(
-        task_id='download_transcripts',
-        bash_command='python /opt/airflow/scripts/downloader.py', #terka's script
+    wait_3_minutes = TimeDeltaSensor(
+        task_id='wait_3_minutes',
+        delta=timedelta(minutes=3),
+    )
+    
+    init_episodes = BashOperator( 
+        task_id='transcripts_downloader',
+        bash_command='python /opt/airflow/scripts/transcriptions/transcriptions.py',
     )
 
-    run_transcripts_processing = SparkSubmitOperator(
-        task_id='transcripts_processing',
+    transcripts_downloader = BashOperator(
+        task_id='transcripts_downloader',
+        bash_command='python /opt/airflow/scripts/transcriptions/transcriptions.py',
+    )
+
+    run_raw_episodes_processing = SparkSubmitOperator(
+        task_id='raw_episodes_processing',
         application='/opt/airflow/spark_jobs/main.py',
-        application_args=['--job', 'transcripts-en'],
+        application_args=['--job', 'raw-episode'],
         conn_id='spark_default',
         conf={'spark.master': 'spark://spark-master:7077'},
     )
 
-    run_metadata_processing = SparkSubmitOperator(
-        task_id='metadata_processing',
-        application='/opt/airflow/spark_jobs/main.py',
-        application_args=['--job', 'metadata'],
-        conn_id='spark_default',
-        conf={'spark.master': 'spark://spark-master:7077'},
-    )
-
-    download_transcripts >> [run_transcripts_processing, run_metadata_processing]
+#We wait 3 minutes allowing the 
+    wait_3_minutes >> init_episodes >> run_raw_episodes_processing >> transcripts_downloader >> run_raw_episodes_processing
