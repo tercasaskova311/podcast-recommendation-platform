@@ -11,7 +11,7 @@ services:
       - postgres-db-volume:/var/lib/postgresql/data
 
   airflow-webserver:
-    image: apache/airflow:2.9.0
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
     depends_on:
       - postgres
     environment:
@@ -29,7 +29,7 @@ services:
     command: webserver
 
   airflow-scheduler:
-    image: apache/airflow:2.9.0
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
     depends_on:
       - postgres
     environment:
@@ -40,10 +40,11 @@ services:
       - ${PWD}/airflow/config:/opt/airflow/config
       - ${PWD}/spark:/opt/airflow/spark_jobs
       - ${PWD}/scripts:/opt/airflow/scripts
+      - ${PWD}/.env.development:/opt/airflow/.env.development
     command: scheduler
 
   airflow-init:
-    image: apache/airflow:2.9.0
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
     depends_on:
       - postgres
     environment:

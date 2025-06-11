@@ -8,7 +8,7 @@ from spark.pipelines import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", choices=[
-    "raw-episode",
+    "raw-podcast",
     "streaming",
     "summary"
 ], required=True)

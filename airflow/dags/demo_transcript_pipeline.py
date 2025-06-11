@@ -1,7 +1,8 @@
+
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-import yaml
+from datetime import datetime
 import os
 
 from dotenv import load_dotenv
@@ -14,19 +15,14 @@ KAFKA_URL = os.getenv("KAFKA_URL")
 TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST")
 SPARK_URL= os.getenv("SPARK_URL")
 
-with open('/opt/airflow/config/schedule_config.yaml') as f:
-    config = yaml.safe_load(f)
+with DAG('demo_transcript_pipeline',
+        schedule_interval=None,
+        start_date = datetime(2025, 6, 9),
+        catchup=False) as dag:
 
-with DAG(
-    dag_id='daily_transcript_pipeline',
-    schedule_interval=config['download_transcripts_interval'],
-    catchup=False,
-    tags=['batch'],
-) as dag:
-    
-    transcripts_downloader = BashOperator(
-        task_id='transcripts_downloader',
-        bash_command='python /opt/airflow/scripts/transcriptions/transcriptions.py',
+    load_bootstrap_transcriptions = BashOperator(
+        task_id='load_bootstrap_transcriptions',
+        bash_command='python3 /opt/airflow/scripts/demo/bootstrap_transcriptions.py',
     )
 
     process_raw_podcast = SparkSubmitOperator(
@@ -37,4 +33,6 @@ with DAG(
         conf={'spark.master': SPARK_URL},
     )
 
-    transcripts_downloader >> process_raw_podcast
+    #start the user-event simulation script
+
+    load_bootstrap_transcriptions >> process_raw_podcast

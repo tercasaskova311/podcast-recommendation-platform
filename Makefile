@@ -5,6 +5,12 @@ MONGO_PATH=./docker/mongodb
 SPARK_PATH=./docker/spark
 AIRFLOW_PATH=./docker/airflow
 
+# Load env vars from .env.development
+ifneq (,$(wildcard .env.development))
+  include .env.development
+  export $(shell sed 's/=.*//' .env.development)
+endif
+
 .PHONY: up down restart logs status \
         kafka-up kafka-down kafka-logs kafka-status kafka-restart kafka-eval \
         create-topic list-topics \
@@ -35,7 +41,7 @@ kafka-eval:
 create-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --create --if-not-exists \
-		--topic raw-podcast --partitions 3 --replication-factor 3 && \
+		--topic $(TOPIC_RAW_PODCAST) --partitions 3 --replication-factor 3 && \
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --create --if-not-exists \
 		--topic processed-ids --partitions 9 --replication-factor 3 --config retention.ms=-1 && \
@@ -77,8 +83,12 @@ spark-status:
 	docker-compose -f $(SPARK_PATH)/docker-compose.yml ps
 
 # -- Airflow Commands ---
-airflow-up:
-	@docker-compose --env-file .env.development -f $(AIRFLOW_PATH)/docker-compose.yml up -d
+
+build-airflow-image:
+	docker build -t $(AIRFLOW_IMAGE_NAME):$(AIRFLOW_IMAGE_TAG) $(AIRFLOW_PATH)/
+
+airflow-up: build-airflow-image
+	@docker-compose --env-file .env.development -f $(AIRFLOW_PATH)/docker-compose.yml up -d --build
 
 airflow-down:
 	@docker-compose -f $(AIRFLOW_PATH)/docker-compose.yml down
