@@ -5,15 +5,10 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from datetime import datetime
 import os
 
-from dotenv import load_dotenv
-
-# Load the .env file
-load_dotenv('/opt/airflow/.env.development')
-
 # Now use the environment variables
-KAFKA_URL = os.getenv("KAFKA_URL")
 TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST")
 SPARK_URL= os.getenv("SPARK_URL")
+KAFKA_URL = os.getenv("KAFKA_URL")
 
 with DAG('demo_transcript_pipeline',
         schedule_interval=None,
@@ -22,7 +17,7 @@ with DAG('demo_transcript_pipeline',
 
     load_bootstrap_transcriptions = BashOperator(
         task_id='load_bootstrap_transcriptions',
-        bash_command='python3 /opt/airflow/scripts/demo/bootstrap_transcriptions.py',
+        bash_command='python /opt/airflow/scripts/demo/bootstrap_transcriptions.py',
     )
 
     process_raw_podcast = SparkSubmitOperator(

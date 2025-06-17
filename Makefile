@@ -87,7 +87,8 @@ spark-status:
 build-airflow-image:
 	docker build -t $(AIRFLOW_IMAGE_NAME):$(AIRFLOW_IMAGE_TAG) $(AIRFLOW_PATH)/
 
-airflow-up: build-airflow-image
+airflow-up: 
+	@make build-airflow-image
 	@docker-compose --env-file .env.development -f $(AIRFLOW_PATH)/docker-compose.yml up -d --build
 
 airflow-down:

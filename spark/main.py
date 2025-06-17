@@ -1,6 +1,6 @@
 import argparse
 
-from spark.pipelines import (
+from pipelines import (
     episode_raw_pipeline,
     streaming_pipeline,
     summary_pipeline

@@ -8,6 +8,7 @@ COPY ./requirements.txt /
 USER airflow
 
 # Install the Python dependencies
-RUN pip install --no-cache-dir -r /requirements.txt
+RUN pip uninstall -y six
+RUN pip install --upgrade pip && pip install --no-cache-dir -r /requirements.txt
 
 
