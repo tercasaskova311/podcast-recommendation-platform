@@ -61,3 +61,5 @@ query = aggregated_scores.writeStream \
 
 # === Keep the stream alive ===
 query.awaitTermination()
+
+
