@@ -2,7 +2,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, split, current_timestamp, size
 from pyspark.sql.types import IntegerType
 
-# ==== Initialize Spark Session ====
+# ==== Initialize Spark Session ==== 
 spark = SparkSession.builder \
     .appName("PodcastEngagementStreaming") \
     .getOrCreate()
@@ -59,13 +59,5 @@ query = aggregated_scores.writeStream \
     .option("checkpointLocation", "/tmp/checkpoints/engagement_agg") \
     .start("/tmp/engagement_aggregates")
 
-# ==== Optional: Debug to Console (during development) ====
-# debug_query = scored_stream.writeStream \
-#     .outputMode("append") \
-#     .format("console") \
-#     .option("truncate", False) \
-#     .start()
-
 # === Keep the stream alive ===
 query.awaitTermination()
-# debug_query.awaitTermination()  # ← Uncomment only if using console output
