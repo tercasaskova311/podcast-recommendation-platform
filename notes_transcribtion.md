@@ -2,79 +2,89 @@
 
 ## Overview
 
-1. Fetching trending English-language podcasts via the **Podcast Index API**  
-2. Downloading one episode per podcast  
-3. Converting audio into proper WAV format  
-4. Transcribing speech into text using the **faster-whisper** (Whisper by OpenAI) model  
-5. Saving transcripts as structured `.json` files
+This pipeline fetches trending English-language podcasts and transcribes them into structured text using a local, fast, and private setup.
 
-We chose **Podcast Index** for its **open-access podcast metadata**, unlike most commercial platforms. The transcription engine, **fast-whisper**, is a faster, optimized version of OpenAI’s Whisper and runs **locally**.
+### What It Does
+
+1. Fetch trending podcasts from the Podcast Index API  
+2. Download one episode per show  
+3. Convert audio to clean WAV format  
+4. Transcribe audio with `faster-whisper` (OpenAI Whisper optimized)  
+5. Output structured `.json` transcripts for each episode  
+
+Everything runs locally without relying on external transcription services.
 
 ---
 
 ## Input
 
-- **`episodes.json`**  
-  Auto-generated file containing one episode per English-language trending podcast. Includes:
-  - `podcast_title`
-  - `episode_title`
-  - `audio_url`
-  - `description`
-  - `episode_id`  
----
+### `episodes.json`
 
-##  Output
+Auto-generated file storing metadata for one episode per trending podcast.  
+Each entry includes:
 
-- **`transcripts/` directory**  
-  Contains one `.json` file per episode, with clean, chunk-stitched transcript text.  
-  Filenames are sanitized from episode titles (e.g., `Why_AI_Will_Change_Everything.json`).
+- `podcast_title`
+- `episode_title`
+- `audio_url`
+- `description`
+- `episode_id`
 
 ---
 
-##  Key Features
+## Output
 
-- **One script** handles both **fetching** and **transcribing**
-- Filters for **English-language** shows using both metadata and language detection
-- Supports **chunked processing** for long-form audio
-- **Parallel transcription** with configurable number of processes
-- **Local** transcription—no 3rd-party services or cloud dependencies
+### `transcripts/` directory
+
+Contains one `.json` file per episode with:
+
+- Fully transcribed content
+- Clean, chunk-stitched formatting
+- Filenames based on sanitized episode titles (e.g., `Why_AI_Will_Change_Everything.json`)
 
 ---
 
-##  Setup & Configuration
+## Key Features
+
+- Single script handles both metadata fetching and transcription  
+- English-language filtering (based on both metadata and audio detection)  
+- Robust chunking to support long episodes  
+- Parallel transcription using multiple processes  
+- Local-only processing (no API keys or cloud infrastructure)
+
+---
+
+## Setup & Installation
 
 ### Prerequisites
 
 - Python ≥ 3.8  
-- `ffmpeg` (used by `pydub`)  
-- `faster-whisper` + dependencies  
+- `ffmpeg` (required by `pydub`)  
+- `faster-whisper`
 
-###  Install requirements
+### Install Dependencies
 
 ```bash
+# Install required Python packages
+pip install -r requirements.txt
 
-If faster-whisper fails to install, try:
+# If faster-whisper fails to install:
 pip install git+https://github.com/guillaumekln/faster-whisper.git
 
-Install ffmpeg
 
-macOS (Homebrew):
-brew install ffmpeg
 
-Script Behavior
+Step                    Description
+───────────────────────────────────────────────────────────────
+1. Fetch Podcasts       → Retrieve trending shows from Podcast Index
+2. Filter Language      → Keep only English podcasts
+3. Fetch Episode        → Download one episode per podcast
+4. Save Metadata        → Store in episodes.json
+5. Download Audio       → Stream and prepare audio files
+6. Convert to WAV       → Set to mono, 16kHz format for Whisper
+7. Chunk Audio          → Split long episodes into 6-minute chunks
+8. Transcribe Chunks    → Use faster-whisper for each chunk
+9. Stitch Transcript    → Combine all chunks into one block of text
+10. Save Transcript     → Write final .json to transcripts/
 
-The pipeline follows a clear flow:
 
-🔄 Pipeline Stages
-Step	Description
-1. Fetch Podcasts	Gets top 50 trending podcasts from Podcast Index
-2. Filter Language	Keeps only English podcasts (metadata + detection)
-3. Fetch Episode	Retrieves 1 episode per podcast (via feed ID)
-4. Save Metadata	Saves all usable episodes to episodes.json
-5. Download Audio	Streams audio in memory for each episode
-6. Convert to WAV	Sets to mono, 16kHz for Whisper compatibility
-7. Chunk Audio	Splits long episodes into 6-min chunks
-8. Transcribe Chunks	Runs faster-whisper on each chunk
-9. Stitch Transcript	Combines all chunks into one text block
-10. Save Transcript	Writes final .json transcript file
+
 
