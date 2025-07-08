@@ -1,85 +1,80 @@
-# Voice-to-Text Transcription Script
+# Podcast Voice-to-Text Transcription Pipeline
 
-## Overview  
-This script automates the process of downloading podcast episodes, converting audio to the proper format, and transcribing spoken content using the Whisper speech-to-text model.
+## Overview
 
-We chose **Podcast Index metadata** because it offers an **open API with trending podcast data**. Most major podcast providers restrict API access, making Podcast Index one of the few open-source platforms for podcast metadata.
+1. Fetching trending English-language podcasts via the **Podcast Index API**  
+2. Downloading one episode per podcast  
+3. Converting audio into proper WAV format  
+4. Transcribing speech into text using the **faster-whisper** (Whisper by OpenAI) model  
+5. Saving transcripts as structured `.json` files
 
-The transcription engine is based on the **fast-whisper** model—a fine-tuned, efficient implementation of OpenAI’s Whisper model. While some other services (e.g., AssemblyAI) provide faster or lighter transcription APIs, they often come with API restrictions or costs. Fast-whisper offers a good balance between speed and accuracy with local deployment.
-
----
-
-## Inputs  
-- **`top_podcasts.json`**  
-  Contains podcast metadata from Podcast Index API: `title`, `description`, `id`, `author`, etc.
-
-- **`episodes_url.json`**  
-  Retrieved the  `audio_url` for given podcast + contains othermeta data.
+We chose **Podcast Index** for its **open-access podcast metadata**, unlike most commercial platforms. The transcription engine, **fast-whisper**, is a faster, optimized version of OpenAI’s Whisper and runs **locally**.
 
 ---
 
-## Outputs  
-- Transcripts are saved as JSON files inside the `transcripts/` directory, named by sanitized episode titles.
+## Input
+
+- **`episodes.json`**  
+  Auto-generated file containing one episode per English-language trending podcast. Includes:
+  - `podcast_title`
+  - `episode_title`
+  - `audio_url`
+  - `description`
+  - `episode_id`  
+---
+
+##  Output
+
+- **`transcripts/` directory**  
+  Contains one `.json` file per episode, with clean, chunk-stitched transcript text.  
+  Filenames are sanitized from episode titles (e.g., `Why_AI_Will_Change_Everything.json`).
 
 ---
 
-## Key Features  
-- Fetches trending podcast episodes based on metrics like recent listens, uploads, and total plays.  
-- Uses Hugging Face’s **fast-whisper** speech-to-text model for efficient local transcription.  
-- Supports parallel processing with configurable worker count to transcribe multiple episodes simultaneously.
+##  Key Features
+
+- **One script** handles both **fetching** and **transcribing**
+- Filters for **English-language** shows using both metadata and language detection
+- Supports **chunked processing** for long-form audio
+- **Parallel transcription** with configurable number of processes
+- **Local** transcription—no 3rd-party services or cloud dependencies
 
 ---
 
-## Setup & Configuration  
+##  Setup & Configuration
 
-- **Authentication:**  
-  Set environment variable `HUGGINGFACE_TOKEN` with your Hugging Face API token.
+### Prerequisites
 
-- **Model Size:**  
-  Select Whisper model size (`tiny`, `base`, `small`, etc.) to balance speed and transcription accuracy.
+- Python ≥ 3.8  
+- `ffmpeg` (used by `pydub`)  
+- `faster-whisper` + dependencies  
 
-- **Concurrency:**  
-  Configure `MAX_WORKERS` to control how many episodes are processed in parallel (default is 2).
+###  Install requirements
 
-## Installation Instructions
+```bash
 
-1. **Install `ffmpeg` (required by `pydub`)**
+If faster-whisper fails to install, try:
+pip install git+https://github.com/guillaumekln/faster-whisper.git
 
-- macOS (Homebrew):
-  ```bash
-  brew install ffmpeg
-- Ubuntu/Debian:
-sudo apt update && sudo apt install ffmpeg
+Install ffmpeg
 
+macOS (Homebrew):
+brew install ffmpeg
 
-2. **If faster-whisper install fails (alternative method):** 
-``` pip install git+https://github.com/guillaumekln/faster-whisper.git
----
+Script Behavior
 
-## How It Works  
+The pipeline follows a clear flow:
 
-The pipeline consists of these stages:  
-**Download → Convert → Chunk → Transcribe → Save**
+🔄 Pipeline Stages
+Step	Description
+1. Fetch Podcasts	Gets top 50 trending podcasts from Podcast Index
+2. Filter Language	Keeps only English podcasts (metadata + detection)
+3. Fetch Episode	Retrieves 1 episode per podcast (via feed ID)
+4. Save Metadata	Saves all usable episodes to episodes.json
+5. Download Audio	Streams audio in memory for each episode
+6. Convert to WAV	Sets to mono, 16kHz for Whisper compatibility
+7. Chunk Audio	Splits long episodes into 6-min chunks
+8. Transcribe Chunks	Runs faster-whisper on each chunk
+9. Stitch Transcript	Combines all chunks into one text block
+10. Save Transcript	Writes final .json transcript file
 
-1. **Load Episode Metadata**  
-   Reads episode details, including audio URLs, from `episodes_url.json`.
-
-2. **Download Audio**  
-   Downloads audio in chunks for efficient memory and network usage.
-
-3. **Convert Audio Format**  
-   Converts audio to WAV format, with mono channel and 16kHz sample rate—the input format required by Whisper.
-
-4. **Temporary File Handling**  
-   Saves chunks as temporary WAV files for transcription.
-
-5. **Transcribe Audio**  
-   Processes audio chunks with the Whisper model to generate text transcripts.
-
-6. **Assemble Transcript**  
-   Combines transcribed chunks into a full episode transcript.
-
-7. **Parallel Processing**  
-   Uses `ProcessPoolExecutor` with configurable `MAX_WORKERS` to transcribe multiple episodes concurrently.
-
----
