@@ -8,7 +8,7 @@ TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST")
 
 producer = KafkaProducer(bootstrap_servers=KAFKA_URL, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
 
-with open('/opt/airflow/scripts/demo/bootstrap_transcriptions.json') as f:
+with open('/opt/scripts/demo/bootstrap_transcriptions.json') as f:
     demo_transcriptions = json.load(f)
 
 for episode in demo_transcriptions:

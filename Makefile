@@ -70,8 +70,12 @@ mongo-shell:
 	docker exec -it mongodb mongosh
 
 # -- Spark Commands ---
+build-spark-image:
+	docker build -t $(SPARK_IMAGE_NAME):$(SPARK_IMAGE_TAG) $(SPARK_PATH)/
+
 spark-up:
-	docker-compose --env-file .env.development -f $(SPARK_PATH)/docker-compose.yml up -d
+	@make build-spark-image
+	docker-compose --env-file .env.development -f $(SPARK_PATH)/docker-compose.yml up -d --build
 
 spark-down:
 	docker-compose -f $(SPARK_PATH)/docker-compose.yml down

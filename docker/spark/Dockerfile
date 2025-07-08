@@ -1,7 +1,9 @@
 FROM bitnami/spark:latest
 
-WORKDIR /app
-#COPY ./spark /app - only for production, 
-COPY ./docker/spark/requirements.txt /app
+USER root
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the requirements.txt into the image
+COPY ./requirements.txt /
+
+
+RUN pip install --no-cache-dir -r /requirements.txt

@@ -1,7 +1,7 @@
 import argparse
 
 from pipelines import (
-    episode_raw_pipeline,
+    raw_podcast_pipeline,
     streaming_pipeline,
     summary_pipeline
 )
@@ -14,8 +14,8 @@ parser.add_argument("--job", choices=[
 ], required=True)
 args = parser.parse_args()
 
-if args.job == "raw-episode":
-    episode_raw_pipeline.run_raw_episode_pipeline()
+if args.job == "raw-podcast":
+    raw_podcast_pipeline.run_raw_podcast_pipeline()
 elif args.job == "streaming":
     streaming_pipeline.run_streaming_pipeline()
 elif args.job == "summary":

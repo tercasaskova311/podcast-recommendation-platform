@@ -4,11 +4,6 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 import yaml
 import os
 
-from dotenv import load_dotenv
-
-# Load the .env file
-load_dotenv('/opt/airflow/.env.development')
-
 # Now use the environment variables
 KAFKA_URL = os.getenv("KAFKA_URL")
 TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST")

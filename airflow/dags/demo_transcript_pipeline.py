@@ -17,15 +17,24 @@ with DAG('demo_transcript_pipeline',
 
     load_bootstrap_transcriptions = BashOperator(
         task_id='load_bootstrap_transcriptions',
-        bash_command='python /opt/airflow/scripts/demo/bootstrap_transcriptions.py',
+        bash_command='python /opt/scripts/demo/bootstrap_transcriptions.py',
     )
 
     process_raw_podcast = SparkSubmitOperator(
         task_id='process_raw_podcast',
-        application='/opt/airflow/spark_jobs/main.py',
+        application='/opt/spark_jobs/main.py',
         application_args=['--job', TOPIC_RAW_PODCAST],
         conn_id='spark_default',
-        conf={'spark.master': SPARK_URL},
+        packages='org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0',
+        conf={
+            "spark.master": SPARK_URL,
+            "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
+            "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+        },
+        env_vars={
+            'PYTHONPATH': '/opt/spark_jobs',
+            'JAVA_HOME': '/usr/lib/jvm/java-17-openjdk-amd64'
+        }
     )
 
     #start the user-event simulation script
