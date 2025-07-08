@@ -10,7 +10,7 @@ spark = SparkSession.builder.appName("TranscriptsBatch").getOrCreate()
 
 # --- CONFIG ---
 CURRENT_DATE = datetime.date.today().isoformat()
-TOP_K = 3 # idk how many podcast recommendation we want to get - we can do less...
+TOP_K = 3 # idk how many podcast recommendation we want to get - we can do less/more...
 
 #=== PATH ===== idk how this is exactly handle through pipelines folder? 
 #NEW_BATCH_PATH = f"/transcripts_data/batch_{CURRENT_DATE}/" 
