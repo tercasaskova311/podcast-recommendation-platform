@@ -3,7 +3,8 @@ import argparse
 from pipelines import (
     raw_podcast_pipeline,
     streaming_pipeline,
-    summary_pipeline
+    summary_pipeline,
+    transcripts_pipeline
 )
 
 parser = argparse.ArgumentParser()
