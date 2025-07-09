@@ -61,7 +61,7 @@ def fetch_episodes():
         feed_id = feed.get("id")
         podcast_title = feed.get("title")
 
-        print(f"🔍 Fetching episode for: {podcast_title}")
+        print(f"Fetching episode for: {podcast_title}")
         res = requests.get(
             "https://api.podcastindex.org/api/1.0/episodes/byfeedid",
             headers=headers,
