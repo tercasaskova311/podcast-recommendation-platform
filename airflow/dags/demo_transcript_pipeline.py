@@ -13,7 +13,9 @@ KAFKA_URL = os.getenv("KAFKA_URL")
 with DAG('demo_transcript_pipeline',
         schedule_interval=None,
         start_date = datetime(2025, 6, 9),
-        catchup=False) as dag:
+        catchup=False,
+        tags=['batch']
+) as dag:
 
     load_bootstrap_transcriptions = BashOperator(
         task_id='load_bootstrap_transcriptions',
