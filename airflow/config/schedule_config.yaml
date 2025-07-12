@@ -1,0 +1,2 @@
+new_episodes_transcript_download_interval: "@hourly"  # Main trigger time
+summary_interval: "@hourly"

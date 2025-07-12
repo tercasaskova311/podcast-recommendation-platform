@@ -1,0 +1,85 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB_AIRFLOW}
+    env_file:
+      - ../../.env.development
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - kafka-net
+
+  airflow-webserver:
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+      - AIRFLOW__WEBSERVER__RBAC=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    env_file:
+      - ../../.env.development
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/spark_jobs
+      - ${PWD}/scripts:/opt/scripts
+    ports:
+      - "8081:8080"
+    command: webserver
+    networks:
+      - kafka-net
+
+  airflow-scheduler:
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+    env_file:
+      - ../../.env.development
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/spark_jobs
+      - ${PWD}/scripts:/opt/scripts
+    command: scheduler
+    networks:
+      - kafka-net
+
+  airflow-init:
+    image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
+    env_file:
+      - ../../.env.development
+    volumes:
+      - ${PWD}/airflow/dags:/opt/airflow/dags
+      - ${PWD}/airflow/config:/opt/airflow/config
+      - ${PWD}/spark:/opt/spark_jobs
+      - ${PWD}/scripts:/opt/scripts
+    entrypoint: /bin/bash
+    command: -c "airflow db init && airflow users create --username ${POSTGRES_USER} --password ${POSTGRES_PASSWORD} --firstname ${AIRFLOW_ADMIN_USER_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_USER_LASTNAME} --role ${AIRFLOW_ADMIN_USER_ROLE} --email ${AIRFLOW_ADMIN_USER_EMAIL} &&
+        airflow connections add spark_default \
+      --conn-type spark \
+      --conn-host spark-master \
+      --conn-port 7077"
+    networks:
+      - kafka-net
+
+volumes:
+  postgres-db-volume:
+
+networks:
+  kafka-net:
+    external: true

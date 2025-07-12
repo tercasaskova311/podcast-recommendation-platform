@@ -1,0 +1,5 @@
+apache-airflow-providers-apache-spark==4.2.0
+six==1.17.0
+kafka-python==2.2.11
+python-dotenv==1.0.1
+langdetect==1.0.9
