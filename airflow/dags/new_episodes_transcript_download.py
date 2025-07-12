@@ -14,22 +14,22 @@ with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
 with DAG(
-    dag_id='daily_transcript_pipeline',
+    dag_id='new_episodes_transcript_download',
     start_date = datetime(2025, 6, 9),
-    schedule_interval=config['download_transcripts_interval'],
+    schedule_interval=config['new_episodes_transcript_download_interval'],
     catchup=False,
     tags=['batch'],
 ) as dag:
     
-    new_episodes_downloader = BashOperator(
-        task_id='new_episodes_downloader',
-        bash_command='python /opt/scripts/batch/new_episodes_downloader.py',
+    new_episodes_download = BashOperator(
+        task_id='new_episodes_download',
+        bash_command='python /opt/scripts/batch/new_episodes_download.py',
     )
 
-    process_raw_podcast = SparkSubmitOperator(
-        task_id='process_raw_podcast',
+    new_episodes_get_transcripts = SparkSubmitOperator(
+        task_id='new_episodes_get_transcripts',
         application='/opt/spark_jobs/main.py',
-        application_args=['--job', TOPIC_RAW_PODCAST],
+        application_args=['--job', 'new-episodes-get-transcripts'],
         conn_id='spark_default',
         packages='org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0',
         conf={
@@ -43,4 +43,4 @@ with DAG(
         }
     )
 
-    new_episodes_downloader >> process_raw_podcast
+    new_episodes_download >> new_episodes_get_transcripts

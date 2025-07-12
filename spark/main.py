@@ -1,23 +1,14 @@
 import argparse
 
-from pipelines import (
-    raw_podcast_pipeline,
-    streaming_pipeline,
-    summary_pipeline,
-    transcripts_pipeline
+from spark.pipelines import (
+    download_transcripts_pipeline
 )
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", choices=[
-    "raw-podcast",
-    "streaming",
-    "summary"
+    "downlaod-transcripts-pipeline"
 ], required=True)
 args = parser.parse_args()
 
-if args.job == "raw-podcast":
-    raw_podcast_pipeline.run_raw_podcast_pipeline()
-elif args.job == "streaming":
-    streaming_pipeline.run_streaming_pipeline()
-elif args.job == "summary":
-    summary_pipeline.run_summary_pipeline()
+if args.job == "downlaod-transcripts-pipeline":
+    download_transcripts_pipeline.run_get_transcripts_pipeline()

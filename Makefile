@@ -41,13 +41,10 @@ kafka-eval:
 create-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --create --if-not-exists \
-		--topic $(TOPIC_RAW_PODCAST) --partitions 3 --replication-factor 3 && \
+		--topic $(TOPIC_EPISODE_METADATA) --partitions 3 --replication-factor 3 && \
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --create --if-not-exists \
-		--topic processed-ids --partitions 9 --replication-factor 3 --config retention.ms=-1 && \
-	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
-		--bootstrap-server kafka1:9092 --create --if-not-exists \
-		--topic user-events-stream --partitions 24 --replication-factor 3
+		--topic $(TOPIC_EPISODES_ID) --partitions 3 --replication-factor 3 --config retention.ms=-1  --config cleanup.policy=compact
 
 list-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \

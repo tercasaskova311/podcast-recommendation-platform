@@ -1,7 +1,5 @@
 from pyspark.sql import SparkSession
-import os
-
-SPARK_URL= os.getenv("SPARK_URL")
+from config.settings import SPARK_URL
 
 def get_spark():
      return SparkSession.builder \
