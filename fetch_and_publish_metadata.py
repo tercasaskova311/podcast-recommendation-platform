@@ -10,7 +10,7 @@ from langdetect.lang_detect_exception import LangDetectException
 # --- CONFIG ---
 API_KEY = "4YCF385ZNXLEHADRUSFV"
 API_SECRET = "YcjAfd9x7S$$qX^4u#n$rvLD$X6c^pT87ShWvF3V"
-KAFKA_URL = os.getenv("KAFKA_URL", "localhost:9092")
+KAFKA_URL = "kafka1:9092"
 TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST", "raw-podcast-metadata")
 
 # ====== AUTH HEADERS FOR PODCAST INDEX ======
@@ -52,7 +52,7 @@ def fetch_episodes():
         feed_id = feed.get("id")
         podcast_title = feed.get("title")
 
-        print(f"📡 Fetching episode for: {podcast_title}")
+        print(f" Fetching episode for: {podcast_title}")
         res = requests.get(
             "https://api.podcastindex.org/api/1.0/episodes/byfeedid",
             headers=headers,

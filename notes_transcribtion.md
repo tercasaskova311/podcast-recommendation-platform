@@ -1,5 +1,16 @@
 # Podcast Voice-to-Text Transcription Pipeline
 
+
+[1] fetch_and_publish_metadata.py
+    └── Fetches 50 podcast episodes
+    └── Sends JSON metadata to Kafka: topic "raw-podcast"
+
+[2] kafka_transcription_consumer.py
+    └── Reads from topic "raw-podcast"
+    └── Downloads and transcribes audio
+    └── Saves to file or sends result to "transcripts-en"
+
+    
 ## Overview
 
 This pipeline fetches trending English-language podcasts and transcribes them into structured text using a local, fast, and private setup.
@@ -84,6 +95,7 @@ Step                    Description
 8. Transcribe Chunks    → Use faster-whisper for each chunk
 9. Stitch Transcript    → Combine all chunks into one block of text
 10. Save Transcript     → Write final .json to transcripts/
+
 
 
 
