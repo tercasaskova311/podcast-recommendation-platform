@@ -117,7 +117,7 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
 
 # ====== MAIN LOOP ======
 if __name__ == "__main__":
-    print("🎧 Starting Kafka Transcription Consumer...")
+    print("Starting Kafka Transcription Consumer...")
     consumer = KafkaConsumer(
         TOPIC_RAW_PODCAST,
         bootstrap_servers=KAFKA_URL,
