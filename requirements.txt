@@ -8,4 +8,5 @@ faster-whisper
 huggingface_hub
 langdetect 
 
-
+pyspark
+python-dotenv
