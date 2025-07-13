@@ -77,14 +77,8 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
             buf.seek(0)
             s, _ = model.transcribe(buf, beam_size=1)
             segments.extend(s)
-            print(f"[{title}] Chunk {i+1}/{len(chunks)}")
 
         transcript_text = " ".join(seg.text for seg in segments)
-
-        # Save locally (optional)
-        os.makedirs("transcripts", exist_ok=True)
-        with open(local_output_path, "w", encoding="utf-8") as f:
-            json.dump(transcript_text, f, ensure_ascii=False)
 
         # Push to Delta Lake
         spark = SparkSession.builder \
@@ -117,7 +111,6 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
 
 # ====== MAIN LOOP ======
 if __name__ == "__main__":
-    print("Starting Kafka Transcription Consumer...")
     consumer = KafkaConsumer(
         TOPIC_RAW_PODCAST,
         bootstrap_servers=KAFKA_URL,
