@@ -3,8 +3,8 @@ from pyspark.sql.functions import col
 
 spark = SparkSession.builder.appName("PodcastMetadataProcessing").getOrCreate()
 
-# Load raw episodes JSON - 
-episodes_raw = spark.read.json("episode_url.json")
+#read mongo db???
+episodes_raw = spark.read()
 
 # Select only the fields you want and rename for clarity
 episodes_selected = episodes_raw.select(

@@ -5,8 +5,8 @@ import time
 spark = SparkSession.builder.appName("ALSTraining").getOrCreate()
 
 # === Paths === probably solved by pipeline script?
-#ENGAGEMENT_AGG_PATH = "/tmp/engagement_aggregates"
-#ALS_MODEL_PATH = "/models/als_model"
+ENGAGEMENT_AGG_PATH = "/tmp/engagement_aggregates"
+ALS_MODEL_PATH = "/models/als_model"
 
 
 def train_als_model():
@@ -26,7 +26,6 @@ def train_als_model():
     model = als.fit(als_input)
     model.write().overwrite().save(ALS_MODEL_PATH)
 
-    print("ALS model trained and saved.")
     return model
 
 if __name__ == "__main__":
@@ -34,5 +33,4 @@ if __name__ == "__main__":
     while True:
         print("Starting ALS training...")
         train_als_model()
-        print("Waiting 1 hour for next retraining cycle...")
         time.sleep(3600)
