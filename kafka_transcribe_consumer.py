@@ -1,74 +1,89 @@
-import json
 import os
 import io
+import json
 import time
+import signal
 import torch
 import requests
+from pydub import AudioSegment
 from kafka import KafkaConsumer, KafkaProducer
 from multiprocessing import Pool, current_process
-from pydub import AudioSegment
 from faster_whisper import WhisperModel
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StringType
+from pyspark.sql.functions import current_timestamp, to_date
 
 # ====== CONFIG ======
 MODEL_SIZE = "tiny.en"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPUTE_TYPE = "int8"
-MAX_WORKERS = 1
+MAX_WORKERS = 2
+
 KAFKA_URL = "kafka1:9092"
 TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST", "raw-podcast-metadata")
 TOPIC_TRANSCRIPTS = "transcripts-en"
 DELTA_OUTPUT_PATH = "/data_lake/transcripts_en"
 
-os.environ["OMP_NUM_THREADS"] = "1"
 model = None
+spark = None
+producer = None
 
-# ====== SETUP WHISPER ======
-def init_model():
-    global model
-    print(f"[{current_process().name}] Loading Whisper model...")
+# ====== INIT ======
+def init_worker():
+    global model, spark, producer
+
+    print(f"[{current_process().name}] Initializing model + Spark + Kafka...")
+
     model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+
+    spark = SparkSession.builder \
+        .appName("SaveTranscript") \
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+        .getOrCreate()
+
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_URL,
+        value_serializer=lambda v: json.dumps(v).encode("utf-8")
+    )
 
 # ====== HELPERS ======
 def safe_filename(name):
     return name.replace(" ", "_").replace("/", "_").replace("\\", "_").replace(":", "-")
 
-def stream_download(url):
-    with requests.get(url, stream=True) as r:
+
+def stream_audio(url):
+    with requests.get(url, stream=True, timeout=10) as r:
         r.raise_for_status()
         buf = io.BytesIO()
-        for chunk in r.iter_content(chunk_size=8192):
+        for chunk in r.iter_content(8192):
             buf.write(chunk)
         buf.seek(0)
         return buf
 
-def convert_to_wav(audio_buffer):
-    audio = AudioSegment.from_file(audio_buffer)
-    return audio.set_frame_rate(16000).set_channels(1)
 
-# ====== TRANSCRIPTION ======
+def convert_to_wav(audio_buffer):
+    return AudioSegment.from_file(audio_buffer).set_frame_rate(16000).set_channels(1)
+
+
+# ====== MAIN TRANSCRIBE FUNCTION ======
 def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
-    global model
-    if model is None:
-        raise RuntimeError("Model not initialized")
+    global model, spark, producer
 
     title = episode.get("episode_title", "unknown")
-    url = episode.get("audio_url")
+    audio_url = episode.get("audio_url")
     episode_id = episode.get("episode_id")
-    filename = safe_filename(title)
-    local_output_path = os.path.join("transcripts", filename + ".json")
 
-    if os.path.exists(local_output_path):
-        print(f"[{title}] Skipped (already done)")
+    if not audio_url or not episode_id:
+        print(f"[{title}] Skipped — missing audio_url or episode_id")
         return
 
-    print(f"[{title}] Transcribing...")
+    print(f"[{title}] Processing...")
 
     try:
-        audio_stream = stream_download(url)
+        audio_stream = stream_audio(audio_url)
         wav = convert_to_wav(audio_stream)
-        chunks = [wav[i:i+chunk_length_ms] for i in range(0, len(wav), chunk_length_ms)]
+        chunks = [wav[i:i + chunk_length_ms] for i in range(0, len(wav), chunk_length_ms)]
 
         segments = []
         for i, chunk in enumerate(chunks):
@@ -78,36 +93,39 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
             s, _ = model.transcribe(buf, beam_size=1)
             segments.extend(s)
 
-        transcript_text = " ".join(seg.text for seg in segments)
+        transcript = " ".join(seg.text for seg in segments)
 
-        # Push to Delta Lake
-        spark = SparkSession.builder \
-            .appName("SaveTranscript") \
-            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-            .getOrCreate()
+        # === Prepare DataFrame with timestamp and date
+        from pyspark.sql import Row
+        df = spark.createDataFrame([
+            Row(episode_id=episode_id, transcript=transcript)
+        ])
+        df = df.withColumn("ingested_at", current_timestamp())
+        df = df.withColumn("date", to_date("ingested_at"))
 
-        schema = StructType().add("episode_id", StringType()).add("transcript", StringType())
-        df = spark.createDataFrame([(episode_id, transcript_text)], schema=schema)
-        df.write.format("delta").mode("append").save(DELTA_OUTPUT_PATH)
-        spark.stop()
+        # === Write to Delta, partitioned by date
+        df.write.format("delta").mode("append").partitionBy("date").save(DELTA_OUTPUT_PATH)
 
-        # Send transcript to Kafka
-        producer = KafkaProducer(
-            bootstrap_servers=KAFKA_URL,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
-        )
+        # === Send transcript to Kafka
         producer.send(TOPIC_TRANSCRIPTS, {
             "episode_id": episode_id,
-            "transcript": transcript_text
+            "transcript": transcript
         })
-        producer.flush()
-        producer.close()
-
-        print(f"[{title}]  Done")
 
     except Exception as e:
         print(f"[{title}] Error: {e}")
+
+
+# ====== SHUTDOWN HANDLER ======
+def shutdown(consumer, pool):
+    print("shutdown")
+    try:
+        pool.terminate()
+        pool.join()
+        consumer.close()
+    except Exception as e:
+        print(f"Shutdown error: {e}")
+
 
 # ====== MAIN LOOP ======
 if __name__ == "__main__":
@@ -120,7 +138,15 @@ if __name__ == "__main__":
         group_id="transcription-group"
     )
 
-    with Pool(processes=MAX_WORKERS, initializer=init_model) as pool:
+    pool = Pool(processes=MAX_WORKERS, initializer=init_worker)
+
+    try:
+        print(" Transcription service running...")
         for message in consumer:
             episode = message.value
-            pool.apply_async(transcribe_episode, (episode,))
+            pool.apply_async(transcribe_episode, args=(episode,))
+    except KeyboardInterrupt:
+        shutdown(consumer, pool)
+    except Exception as e:
+        print(f"Main loop error: {e}")
+        shutdown(consumer, pool)
