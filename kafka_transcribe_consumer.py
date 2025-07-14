@@ -32,8 +32,6 @@ producer = None
 def init_worker():
     global model, spark, producer
 
-    print(f"[{current_process().name}] Initializing model + Spark + Kafka...")
-
     model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 
     spark = SparkSession.builder \
@@ -75,10 +73,7 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
     episode_id = episode.get("episode_id")
 
     if not audio_url or not episode_id:
-        print(f"[{title}] Skipped — missing audio_url or episode_id")
         return
-
-    print(f"[{title}] Processing...")
 
     try:
         audio_stream = stream_audio(audio_url)
