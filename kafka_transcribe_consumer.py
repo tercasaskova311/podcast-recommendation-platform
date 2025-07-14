@@ -20,7 +20,7 @@ COMPUTE_TYPE = "int8"
 MAX_WORKERS = 2
 
 KAFKA_URL = "kafka1:9092"
-TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST", "raw-podcast-metadata")
+TOPIC_EPISODE_METADATA = os.getenv("TOPIC_EPISODE_METADATA", "episode-metadata")
 TOPIC_TRANSCRIPTS = "transcripts-en"
 DELTA_OUTPUT_PATH = "/data_lake/transcripts_en"
 
@@ -125,7 +125,7 @@ def shutdown(consumer, pool):
 # ====== MAIN LOOP ======
 if __name__ == "__main__":
     consumer = KafkaConsumer(
-        TOPIC_RAW_PODCAST,
+        TOPIC_EPISODE_METADATA,
         bootstrap_servers=KAFKA_URL,
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
         auto_offset_reset='earliest',

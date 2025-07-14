@@ -3,12 +3,22 @@
 
 [1] fetch_and_publish_metadata.py
     └── Fetches 50 podcast episodes
-    └── Sends JSON metadata to Kafka: topic "raw-podcast"
+    └── Sends JSON metadata to Kafka: topic "metadata"
 
 [2] kafka_transcription_consumer.py
-    └── Reads from topic "raw-podcast"
+    └── Reads from topic "metadata"
     └── Downloads and transcribes audio
-    └── Saves to file or sends result to "transcripts-en"
+    └── Saves result to "transcripts-en"  - delta lake + send back to kafka
+
+.... Kafka Topics
+
+- episode-metadata
+  - Contains: full metadata for all new podcast episodes
+  - Used by: MongoDB writer, Transcription service
+
+- episode-ids
+  - Contains: only episode IDs
+  - Used by: downstream triggering (e.g., batch jobs)
 
     
 ## Overview
