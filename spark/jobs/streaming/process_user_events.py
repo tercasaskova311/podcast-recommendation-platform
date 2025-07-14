@@ -2,12 +2,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, split, current_timestamp, size
 from pyspark.sql.types import IntegerType
 
-# ==== Initialize Spark Session ==== 
 spark = SparkSession.builder \
     .appName("PodcastEngagementStreaming") \
     .getOrCreate()
 
-# ==== Read from Kafka ====
 kafka_stream = (
     spark.readStream
     .format("kafka")
@@ -16,8 +14,6 @@ kafka_stream = (
     .option("startingOffsets", "latest")
     .load()
 )
-
-# ==== Decode Kafka value (binary to string) ====
 decoded_stream = kafka_stream.selectExpr("CAST(value AS STRING) as csv_str")
 
 # ==== Filter valid CSV rows (must have 5 fields) ====
@@ -25,7 +21,6 @@ validated_stream = decoded_stream.filter(
     size(split(col("csv_str"), ",")) == 5
 )
 
-# ==== Split CSV string into structured columns ====
 split_cols = split(col("csv_str"), ",")
 
 parsed_stream = validated_stream.select(
@@ -36,16 +31,15 @@ parsed_stream = validated_stream.select(
     split_cols.getItem(4).cast(IntegerType()).alias("skips"),
 ).withColumn("timestamp", current_timestamp())
 
-# ==== Drop rows with nulls (safety net) ====
 clean_stream = parsed_stream.dropna(subset=["user_id", "episode_id", "likes", "completions", "skips"])
 
-# ==== Compute Engagement Score ====
+# ==== ENGAGEMENT SCORE ====
 scored_stream = clean_stream.withColumn(
     "engagement_score",
     0.5 * col("likes") + 0.3 * col("completions") - 0.2 * col("skips")
 )
 
-# ==== Aggregate engagement with watermarking (per user + podcast) ====
+# ==== AGGREGATE USER EVENTS x TRANSCRIBTS DATA ====
 aggregated_scores = scored_stream \
     .withWatermark("timestamp", "2 days") \
     .groupBy("user_id", "podcast_id") \

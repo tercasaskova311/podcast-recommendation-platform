@@ -4,7 +4,7 @@ import time
 
 spark = SparkSession.builder.appName("ALSTraining").getOrCreate()
 
-# === Paths === probably solved by pipeline script?
+# === Paths === 
 ENGAGEMENT_AGG_PATH = "/tmp/engagement_aggregates"
 ALS_MODEL_PATH = "/models/als_model"
 
