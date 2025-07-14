@@ -1,7 +1,8 @@
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import Tokenizer, HashingTF, IDF, Normalizer, BucketedRandomProjectionLSH
-from pyspark.sql.functions import col, row_number
+from pyspark.sql.functions import col, row_number, lit
 from pyspark.sql.window import Window
+from pyspark.errors import AnalysisException
 import datetime
 
 # Start Spark session
@@ -9,13 +10,13 @@ spark = SparkSession.builder.appName("TranscriptsBatch").getOrCreate()
 
 # --- CONFIG ---
 CURRENT_DATE = datetime.date.today().isoformat()
-TOP_K = 3 # idk how many podcast recommendation we want to get - we can do less/more...
+TOP_K = 3
 DELTA_LAKE_PATH = "/data_lake/transcripts_en"
-HISTORICAL_VECTORS_PATH = "/data_lake/historical_tfidf_vectors"
+HISTORICAL_VECTORS_PATH = "/data_lake/tfidf_vectors"
 
-#==== TEXT PROCESSING:  TF-IDF Embeddings ==== 
-def compute_tfidf_embeddings(delta_path, current_date):
-    transcripts_df = spark.read.format("delta").load(delta_path)
+#==== TEXT PROCESSING: TF-IDF Embeddings ====
+def compute_tfidf_embeddings(delta_path):
+    transcripts_df = spark.read.format("delta").load(delta_path).filter(col("date") == CURRENT_DATE)
     tokenizer = Tokenizer(inputCol="transcript", outputCol="words")
     words_df = tokenizer.transform(transcripts_df)
 
@@ -29,50 +30,62 @@ def compute_tfidf_embeddings(delta_path, current_date):
     norm = Normalizer(inputCol="features", outputCol="normFeatures")
     norm_tfidf = norm.transform(tfidf_df)
 
+    # Always return with consistent ID naming
     return norm_tfidf.select("episode_id", "normFeatures")
 
-#====== LSH MODEL (locality sensitive hashing) to compare podcast similarity ====== 
+#====== LSH MODEL ======
 def fit_lsh_model(tfidf_df):
     lsh = BucketedRandomProjectionLSH(
         inputCol="normFeatures",
         outputCol="hashes",
-        bucketLength=1.0, #lenght of scalars for buckets
-        numHashTables=3 #3 random projection - 3 chances to catch similar vectors in the same bucket
+        bucketLength=1.0,
+        numHashTables=3
     )
     return lsh.fit(tfidf_df)
 
-# ==== KNN =========
+# ==== FIND KNN ======
 def find_knn(lsh_model, new_batch_df, history_df, top_k=TOP_K):
-    joined = lsh_model.approxSimilarityJoin( #which vector from new_batch_df fall into the same hash buckets
-        new_batch_df.select("podcast_id", "normFeatures"),
-        history_df.select("podcast_id", "normFeatures"),
+    joined = lsh_model.approxSimilarityJoin(
+        new_batch_df.select("episode_id", "normFeatures"),
+        history_df.select("episode_id", "normFeatures"),
         threshold=float("inf")
     )
 
     result = joined.select(
-        col("datasetA.podcast_id").alias("new_podcast"),
-        col("datasetB.podcast_id").alias("historical_podcast"),
-        col("distCol").alias("distance") #euclidian distance between two podcasts
+        col("datasetA.episode_id").alias("new_podcast"),
+        col("datasetB.episode_id").alias("historical_podcast"),
+        col("distCol").alias("distance")
     )
 
-    w = Window.partitionBy("new_podcast").orderBy("distance") #order the distances
-    return result.withColumn("rank", row_number().over(w)).filter(col("rank") <= top_k).drop("rank") #choose top k closest podcasts
+    result = result.filter(col("new_podcast") != col("historical_podcast"))
 
-# ====== Run Batch =========
+    w = Window.partitionBy("new_podcast").orderBy("distance")
+    return result.withColumn("rank", row_number().over(w)) \
+                 .filter(col("rank") <= top_k) \
+                 .drop("rank")
+
+# ====== RUN BATCH ======
 if __name__ == "__main__":
-    new_batch = compute_tfidf_embeddings(DELTA_LAKE_PATH, CURRENT_DATE).cache()
+    new_batch = compute_tfidf_embeddings(DELTA_LAKE_PATH).persist()
 
     try:
         history = spark.read.format("delta").load(HISTORICAL_VECTORS_PATH).cache()
-    except:
+    except AnalysisException:
+        print("No history found — starting fresh.")
         history = spark.createDataFrame([], new_batch.schema)
 
     if new_batch.count() > 0 and history.count() > 0:
         lsh_model = fit_lsh_model(history)
-        knn_df = find_knn(lsh_model, new_batch, history)
-        knn_df.write.format("delta").mode("overwrite").save(f"/data_lake/knn_similarities/day_{CURRENT_DATE}")
+        knn_df = find_knn(lsh_model, new_batch, history) \
+                    .withColumn("date", lit(CURRENT_DATE))
+
+        knn_df.write.format("delta") \
+            .mode("append") \
+            .partitionBy("date") \
+            .save("/data_lake/knn_similarities")
     else:
         print("Skipping similarity search — no data.")
 
+    # update historical vector set
     updated = history.union(new_batch).dropDuplicates(["episode_id"])
     updated.write.format("delta").mode("overwrite").save(HISTORICAL_VECTORS_PATH)

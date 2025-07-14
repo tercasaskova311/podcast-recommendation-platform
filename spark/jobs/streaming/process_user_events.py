@@ -30,14 +30,14 @@ split_cols = split(col("csv_str"), ",")
 
 parsed_stream = validated_stream.select(
     split_cols.getItem(0).cast(IntegerType()).alias("user_id"),
-    split_cols.getItem(1).cast(IntegerType()).alias("podcast_id"),
+    split_cols.getItem(1).cast(IntegerType()).alias("episode_id"),
     split_cols.getItem(2).cast(IntegerType()).alias("likes"),
     split_cols.getItem(3).cast(IntegerType()).alias("completions"),
     split_cols.getItem(4).cast(IntegerType()).alias("skips"),
 ).withColumn("timestamp", current_timestamp())
 
 # ==== Drop rows with nulls (safety net) ====
-clean_stream = parsed_stream.dropna(subset=["user_id", "podcast_id", "likes", "completions", "skips"])
+clean_stream = parsed_stream.dropna(subset=["user_id", "episode_id", "likes", "completions", "skips"])
 
 # ==== Compute Engagement Score ====
 scored_stream = clean_stream.withColumn(
@@ -47,7 +47,7 @@ scored_stream = clean_stream.withColumn(
 
 # ==== Aggregate engagement with watermarking (per user + podcast) ====
 aggregated_scores = scored_stream \
-    .withWatermark("timestamp", "1 hour") \
+    .withWatermark("timestamp", "2 days") \
     .groupBy("user_id", "podcast_id") \
     .sum("engagement_score") \
     .withColumnRenamed("sum(engagement_score)", "engagement_score")
