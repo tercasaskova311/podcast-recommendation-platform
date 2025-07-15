@@ -17,7 +17,7 @@ REFRESH_INTERVAL = 3600  # 1 hour
 # ====== SPARK SESSION ======
 spark = SparkSession.builder \
     .appName("HybridRecommendationEngine") \
-    .config("spark.sql.shuffle.partitions", "200")  # Increased partitioning for scalability
+    .spark.conf.set("spark.sql.shuffle.partitions", "auto")
     .getOrCreate()
 
 def generate_recommendations(als_model, podcast_similarities, active_users_df):
