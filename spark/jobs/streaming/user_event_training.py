@@ -15,7 +15,7 @@ def train_als_model():
     #ALS is part of Mllib, so we just implement that => a matrix factorization algorithm
     als = ALS(
         userCol="user_id",
-        itemCol="podcast_id",
+        itemCol="episode_id",
         ratingCol="engagement_score", #target variable
         nonnegative=True, #Enforce nonnegative factors for interpretability and stability
         coldStartStrategy="drop", #avoid NaNs in predictions for unseen users/items
@@ -29,8 +29,6 @@ def train_als_model():
     return model
 
 if __name__ == "__main__":
-    #adapt to streaming of user_events
     while True:
-        print("Starting ALS training...")
         train_als_model()
         time.sleep(3600)

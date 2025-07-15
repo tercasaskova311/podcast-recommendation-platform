@@ -49,7 +49,7 @@ scored_stream = clean_stream.withColumn(
 
 # ==== AGGREGATE ====
 aggregated_scores = scored_stream \
-    .withWatermark("timestamp", "2 days") \
+    .withWatermark("timestamp", "1 hour") \
     .groupBy("user_id", "episode_id") \
     .sum("engagement_score") \
     .withColumnRenamed("sum(engagement_score)", "engagement_score")
