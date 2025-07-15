@@ -2,21 +2,29 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, split, current_timestamp, size
 from pyspark.sql.types import IntegerType
 
+# ========== CONFIG ==========
+KAFKA_TOPIC = "streaming"
+KAFKA_SERVERS = "localhost:9092"
+DELTA_OUTPUT_PATH = "/tmp/engagement_aggregates"
+CHECKPOINT_DIR = "/tmp/checkpoints/engagement_agg"
+
+
+# ========== SPARK SESSION ==========
 spark = SparkSession.builder \
     .appName("PodcastEngagementStreaming") \
+    .config("spark.sql.shuffle.partitions", "4") \
     .getOrCreate()
 
 kafka_stream = (
     spark.readStream
     .format("kafka")
-    .option("kafka.bootstrap.servers", "localhost:9092")
-    .option("subscribe", "streaming")
+    .option("kafka.bootstrap.servers", KAFKA_SERVERS)
+    .option("subscribe", KAFKA_TOPIC)
     .option("startingOffsets", "latest")
     .load()
 )
 decoded_stream = kafka_stream.selectExpr("CAST(value AS STRING) as csv_str")
 
-# ==== Filter valid CSV rows (must have 5 fields) ====
 validated_stream = decoded_stream.filter(
     size(split(col("csv_str"), ",")) == 5
 )
@@ -39,19 +47,19 @@ scored_stream = clean_stream.withColumn(
     0.5 * col("likes") + 0.3 * col("completions") - 0.2 * col("skips")
 )
 
-# ==== AGGREGATE USER EVENTS x TRANSCRIBTS DATA ====
+# ==== AGGREGATE ====
 aggregated_scores = scored_stream \
     .withWatermark("timestamp", "2 days") \
-    .groupBy("user_id", "podcast_id") \
+    .groupBy("user_id", "episode_id") \
     .sum("engagement_score") \
     .withColumnRenamed("sum(engagement_score)", "engagement_score")
 
-# ==== Write to Delta Lake (for ALS consumption) ====
+# ==== TO DELTA LAKE ====
 query = aggregated_scores.writeStream \
     .outputMode("update") \
     .format("delta") \
-    .option("checkpointLocation", "/tmp/checkpoints/engagement_agg") \
-    .start("/tmp/engagement_aggregates")
+    .option("checkpointLocation", CHECKPOINT_DIR) \
+    .start(DELTA_OUTPUT_PATH)
 
 # === Keep the stream alive ===
 query.awaitTermination()

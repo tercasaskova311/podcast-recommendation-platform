@@ -1,18 +1,25 @@
-# ======= COMPUTING RECOMMENDATION based on engagement score and simularities between podcasts ========
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, explode
 from pyspark.ml.recommendation import ALSModel
 import time
+import datetime
+
+# ====== CONFIG ======
+ALS_MODEL_PATH = "/models/als_model"  # Trained in ALS batch job
+SIMILARITY_PATH = "/output/knn_similarities"  # Produced by transcript similarity batch
+OUTPUT_PATH = "/recommendations/hybrid"  # Optional: store recommendations
+ALPHA = 0.7  # Weight between ALS and similarity
+TOP_K = 10  # Top recommendations per user
+REFRESH_INTERVAL = 3600  # In seconds (1 hour)
 
 
-spark = SparkSession.builder.appName("HybridRecommendation").getOrCreate()
+# ====== SPARK SESSION ======
+spark = SparkSession.builder \
+    .appName("HybridRecommendationEngine") \
+    .config("spark.sql.shuffle.partitions", "4") \
+    .getOrCreate()
 
-#====== PATH ============== I think this is probably handled by pipelines right? 
-ALS_MODEL_PATH = "/models/als_model" #pretrained ALS model from ALS_training.py
-SIMILARITY_PATH = "/output/podcast_similarities" #precompute podcast similarities in process_transcrip.py 
-
-
-#===== RECOMMENDATION COMPUTATION ============
+#===== RECOMMENDATION ============
 def generate_recommendations(als_model, podcast_similarities):
     """
     Generate hybrid podcast recommendations by combining:
@@ -49,10 +56,13 @@ def generate_recommendations(als_model, podcast_similarities):
      # --- Combine Scores for Hybrid Ranking ---
     # We use a weighted average of ALS and similarity scores.
     # Alpha controls the weight of collaborative filtering vs content similarity.
-    alpha = 0.7
+    hybrid = hybrid.withColumn(
+        "content_score",
+        1 / (1 + col("distance"))
+    )
     hybrid = hybrid.withColumn(
         "final_score",
-        alpha * col("als_score") + (1 - alpha) * col("cosine_similarity")
+        ALPHA * col("als_score") + (1 - ALPHA) * col("cosine_similarity")
     )
 
     # --- Final Ordering ---
