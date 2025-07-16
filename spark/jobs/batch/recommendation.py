@@ -13,7 +13,6 @@ ALPHA = 0.7
 TOP_K = 10
 REFRESH_INTERVAL = 3600  # 1 hour
 
-
 # ====== SPARK SESSION ======
 spark = SparkSession.builder \
     .appName("HybridRecommendationEngine") \
