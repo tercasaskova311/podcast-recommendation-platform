@@ -24,12 +24,7 @@ SIMILARITY_PATH = "/data_lake/similarities"  # Define the similarity output path
 
 # Define schema for metadata messages
 metadata_schema = StructType() \
-    .add("episode_id", StringType()) \
-    .add("podcast_title", StringType()) \
-    .add("podcast_author", StringType()) \
-    .add("episode_title", StringType()) \
-    .add("description", StringType()) \
-    .add("audio_url", StringType())
+    .add("episode_id", StringType())
 
 def load_episode_metadata_from_kafka():
     kafka_df = spark.read \
@@ -46,18 +41,14 @@ def load_episode_metadata_from_kafka():
     return metadata_df
 
 
-
 #==== TEXT PROCESSING: TF-IDF Embeddings ====
 def compute_tfidf_embeddings(delta_path):
-    transcripts_df = spark.read.format("delta").load(delta_path).filter(col("date") == CURRENT_DATE)
-    metadata_df = load_episode_metadata_from_kafka()
-
-    # Join transcripts with metadata using episode_id
-    joined_df = transcripts_df.join(metadata_df, on="episode_id", how="inner")
-
+    transcripts_df = spark.read.format("delta").load(DELTA_LAKE_PATH) \
+        .filter(col("date") == CURRENT_DATE) \
+        .select("episode_id", "transcript")
 
     tokenizer = Tokenizer(inputCol="transcript", outputCol="words")
-    words_df = tokenizer.transform(joined_df)
+    words_df = tokenizer.transform(transcripts_df)
 
     hashingTF = HashingTF(inputCol="words", outputCol="rawFeatures", numFeatures=100)
     tf_df = hashingTF.transform(words_df)

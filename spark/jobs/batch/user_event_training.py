@@ -3,8 +3,10 @@ from pyspark.ml.recommendation import ALS
 import time
 import logging
 
-# Start Spark session
-spark = SparkSession.builder.appName("ALSTraining").getOrCreate()
+spark = SparkSession.builder \
+    .appName("ALSTraining") \
+    .config("spark.mongodb.output.uri", "mongodb://localhost:27017/rec_engine.als_recommendations") \
+    .getOrCreate()
 
 # === Paths === 
 ENGAGEMENT_AGG_PATH = "/tmp/engagement_aggregates"  # Or use MongoDB path
@@ -37,6 +39,31 @@ def train_als_model():
     logging.info(f"ALS model trained and saved to {ALS_MODEL_PATH}.")
 
     return model
+
+def save_top_n_to_mongo(model, top_n=10):
+    logging.info("Generating top-N recommendations...")
+
+    user_recs = model.recommendForAllUsers(top_n)
+
+    flattened = user_recs.select(
+        col("user_id"),
+        explode("recommendations").alias("rec")
+    ).select(
+        col("user_id"),
+        col("rec.episode_id"),
+        col("rec.rating").alias("als_score")
+    )
+
+    # Save to MongoDB
+    flattened.write \
+        .format("mongo") \
+        .mode("overwrite") \
+        .option("database", "rec_engine") \
+        .option("collection", "als_recommendations") \
+        .save()
+
+    logging.info("Top-N ALS recommendations saved to MongoDB.")
+
 
 if __name__ == "__main__":
     while True:
