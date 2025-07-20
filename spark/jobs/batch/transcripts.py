@@ -6,22 +6,58 @@ from pyspark.errors import AnalysisException
 import datetime
 from pyspark.ml.feature import PCA
 from pyspark import StorageLevel
+from pyspark.sql.functions import from_json
+from pyspark.sql.types import StructType, StringType
+import os
 
-# Start Spark session
 spark = SparkSession.builder.appName("TranscriptsBatch").getOrCreate()
 
-# --- CONFIG ---
+
+# Kafka Config
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_URL")
+TOPIC_METADATA = os.getenv("TOPIC_EPISODE_METADATA")
 CURRENT_DATE = datetime.date.today().isoformat()
 TOP_K = 3
 DELTA_LAKE_PATH = "/data_lake/transcripts_en"
 HISTORICAL_VECTORS_PATH = "/data_lake/tfidf_vectors"
 SIMILARITY_PATH = "/data_lake/similarities"  # Define the similarity output path
 
+# Define schema for metadata messages
+metadata_schema = StructType() \
+    .add("episode_id", StringType()) \
+    .add("podcast_title", StringType()) \
+    .add("podcast_author", StringType()) \
+    .add("episode_title", StringType()) \
+    .add("description", StringType()) \
+    .add("audio_url", StringType())
+
+def load_episode_metadata_from_kafka():
+    kafka_df = spark.read \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
+        .option("subscribe", TOPIC_METADATA) \
+        .option("startingOffsets", "earliest") \
+        .load()
+
+    metadata_df = kafka_df.selectExpr("CAST(value AS STRING)") \
+        .select(from_json("value", metadata_schema).alias("data")) \
+        .select("data.*")
+
+    return metadata_df
+
+
+
 #==== TEXT PROCESSING: TF-IDF Embeddings ====
 def compute_tfidf_embeddings(delta_path):
     transcripts_df = spark.read.format("delta").load(delta_path).filter(col("date") == CURRENT_DATE)
+    metadata_df = load_episode_metadata_from_kafka()
+
+    # Join transcripts with metadata using episode_id
+    joined_df = transcripts_df.join(metadata_df, on="episode_id", how="inner")
+
+
     tokenizer = Tokenizer(inputCol="transcript", outputCol="words")
-    words_df = tokenizer.transform(transcripts_df)
+    words_df = tokenizer.transform(joined_df)
 
     hashingTF = HashingTF(inputCol="words", outputCol="rawFeatures", numFeatures=100)
     tf_df = hashingTF.transform(words_df)
