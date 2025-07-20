@@ -6,7 +6,7 @@ import logging
 # ========== CONFIG ==========
 KAFKA_TOPIC = "streaming"
 KAFKA_SERVERS = "localhost:9092"
-MONGO_URI = "mongodb://localhost:27017/yourDatabase.user_events"
+MONGO_URI = "mongodb://localhost:27017/engagement_score.user_events"
 CHECKPOINT_DIR = "/tmp/checkpoints/engagement_agg"
 
 # ========== SPARK SESSION ==========
