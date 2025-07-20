@@ -22,24 +22,6 @@ DELTA_LAKE_PATH = "/data_lake/transcripts_en"
 HISTORICAL_VECTORS_PATH = "/data_lake/tfidf_vectors"
 SIMILARITY_PATH = "/data_lake/similarities"  # Define the similarity output path
 
-# Define schema for metadata messages
-metadata_schema = StructType() \
-    .add("episode_id", StringType())
-
-def load_episode_metadata_from_kafka():
-    kafka_df = spark.read \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", TOPIC_METADATA) \
-        .option("startingOffsets", "earliest") \
-        .load()
-
-    metadata_df = kafka_df.selectExpr("CAST(value AS STRING)") \
-        .select(from_json("value", metadata_schema).alias("data")) \
-        .select("data.*")
-
-    return metadata_df
-
 
 #==== TEXT PROCESSING: TF-IDF Embeddings ====
 def compute_tfidf_embeddings(delta_path):
@@ -118,6 +100,8 @@ if __name__ == "__main__":
         # Find KNN similarities
         knn_df = find_knn(lsh_model, new_batch, history) \
                     .withColumn("date", lit(CURRENT_DATE))
+        
+        knn_df = knn_df.dropDuplicates(["new_podcast", "historical_podcast"])
 
         # Save KNN similarities to Delta Lake
         knn_df.write.format("delta") \
