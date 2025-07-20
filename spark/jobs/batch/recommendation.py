@@ -6,7 +6,7 @@ import datetime
 
 # ====== CONFIG ======
 ALS_MODEL_PATH = "/models/als_model"
-SIMILARITY_PATH = "/output/knn_similarities"
+SIMILARITY_PATH = "/data_lake/knn_similarities"  # Adjusted: delta format
 DELTA_ENGAGEMENT_PATH = "/tmp/engagement_aggregates"
 RECOMMENDATION_OUTPUT_PATH = "/recommendations/hybrid"
 ALPHA = 0.7
@@ -16,8 +16,10 @@ REFRESH_INTERVAL = 3600  # 1 hour
 # ====== SPARK SESSION ======
 spark = SparkSession.builder \
     .appName("HybridRecommendationEngine") \
-    .spark.conf.set("spark.sql.shuffle.partitions", "auto")
+    .config("spark.sql.shuffle.partitions", "auto") \
+    .config("spark.mongodb.output.uri", "mongodb://localhost:27017") \
     .getOrCreate()
+
 
 def generate_recommendations(als_model, podcast_similarities, active_users_df):
     """
@@ -50,34 +52,44 @@ def generate_recommendations(als_model, podcast_similarities, active_users_df):
 
     return hybrid.orderBy("user_id", col("final_score").desc())
 
+# ====== MAIN LOOP ======
 if __name__ == "__main__":
     while True:
         try:
-            print(f"[{datetime.datetime.now()}] Loading ALS model...")
+            now = datetime.datetime.now()
+
+            # === Load ALS Model ===
             als_model = ALSModel.load(ALS_MODEL_PATH)
 
-            print(f"[{datetime.datetime.now()}] Loading podcast similarities...")
-            podcast_similarities = spark.read.parquet(SIMILARITY_PATH)
+            # === Load Podcast Similarities from Delta ===
+            podcast_similarities = spark.read.format("delta").load(SIMILARITY_PATH)
+            podcast_similarities = podcast_similarities.dropna(subset=["cosine_similarity"])  # Sanity
 
-            print(f"[{datetime.datetime.now()}] Loading active users from recent engagement...")
+            # === Load Active Users from Engagement ===
             engagement_df = spark.read.format("delta").load(DELTA_ENGAGEMENT_PATH)
-
-            # Optional: Only include users with recent scores or top X%
             active_users = engagement_df.select("user_id").distinct()
 
-            print(f"[{datetime.datetime.now()}] Generating hybrid recommendations...")
+            # === Generate Recommendations ===
             recommendations = generate_recommendations(als_model, podcast_similarities, active_users)
 
-            # Show top results (for debug)
             recommendations.show(20, truncate=False)
 
-            # Save to Delta (optional)
+            # === Save to Delta Lake ===
             recommendations.write.mode("overwrite").format("delta").save(RECOMMENDATION_OUTPUT_PATH)
 
-            print(f"[{datetime.datetime.now()}] Done. Sleeping for {REFRESH_INTERVAL} seconds...\n")
+            # --- Save to MongoDB ---
+            recommendations.write \
+                .format("mongo") \
+                .mode("overwrite") \  
+                .option("database", "recommendation_system") \
+                .option("collection", "hybrid_recommendations") \
+                .save()
+
+
+            print(f"[{now}]  Done. Sleeping for {REFRESH_INTERVAL} seconds...\n")
             time.sleep(REFRESH_INTERVAL)
 
         except Exception as e:
-            print(f"[{datetime.datetime.now()}] ERROR: {e}")
+            print(f"[{datetime.datetime.now()}]  ERROR: {e}")
             print("Retrying in 10 minutes...")
             time.sleep(600)
