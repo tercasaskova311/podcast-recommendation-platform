@@ -1,64 +1,66 @@
 from pyspark.sql import SparkSession
-from pyspark.ml.feature import Tokenizer, HashingTF, IDF, Normalizer, BucketedRandomProjectionLSH
+from pyspark.ml.feature import Tokenizer, HashingTF, IDF, BucketedRandomProjectionLSH, PCA
 from pyspark.sql.functions import col, row_number, lit
 from pyspark.sql.window import Window
 from pyspark.errors import AnalysisException
 import datetime
-from pyspark.ml.feature import PCA
-from pyspark import StorageLevel
-from pyspark.sql.functions import from_json
-from pyspark.sql.types import StructType, StringType
 import os
 
-spark = SparkSession.builder.appName("TranscriptsBatch").getOrCreate()
-
-# Kafka Config
-CURRENT_DATE = datetime.date.today().isoformat()
-TOP_K = 3
+# ====== CONFIG (define if not already) ======
 INPUT_DELTA_LAKE = "/data_lake/transcripts_en"
 VECTORS_DELTA_LAKE = "/data_lake/tfidf_vectors"
-SIMILARITIES_DELTA_LAKE = "/data_lake/similarities"  # Define the similarity output path
+SIMILARITIES_DELTA_LAKE = "/data_lake/similarities"
+CURRENT_DATE = datetime.date.today().isoformat()
+TOP_K = 3 #num of top k simular podcasts to commpute
 
+spark = SparkSession.builder.appName("Transcript_Similarity").getOrCreate()
 
-#==== TEXT PROCESSING: TF-IDF Embeddings ====
+# ====== 1. TF-IDF + PCA ======
 def compute_tfidf_embeddings(delta_path):
-    transcripts_df = spark.read.format("delta").load(INPUT_DELTA_LAKE) \
+    transcripts_df = spark.read.format("delta").load(delta_path) \
         .filter(col("date") == CURRENT_DATE) \
         .select("episode_id", "transcript")
 
+    if transcripts_df.isEmpty():
+        return None
+
+    # Tokenization
     tokenizer = Tokenizer(inputCol="transcript", outputCol="words")
     words_df = tokenizer.transform(transcripts_df)
 
-    hashingTF = HashingTF(inputCol="words", outputCol="rawFeatures", numFeatures=100)
-    tf_df = hashingTF.transform(words_df)
+    # TF-IDF
+    tf = HashingTF(inputCol="words", outputCol="rawFeatures", numFeatures=100)
+    tf_df = tf.transform(words_df)
 
     idf = IDF(inputCol="rawFeatures", outputCol="features")
     idf_model = idf.fit(tf_df)
-    tfidf_df = idf_model.transform(tf_df)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+    tfidf_df = idf_model.transform(tf_df)
 
-    norm = Normalizer(inputCol="features", outputCol="normFeatures")
-    norm_tfidf = norm.transform(tfidf_df)
-
-    # PCA for dimensionality reduction
+    # PCA - because LSH would be hardly computed otherwise....
     pca = PCA(k=100, inputCol="features", outputCol="reduced_features")
     pca_model = pca.fit(tfidf_df)
     reduced_df = pca_model.transform(tfidf_df)
 
     return reduced_df.select("episode_id", "reduced_features")
 
-#====== LSH MODEL ======
-def fit_lsh_model(tfidf_df):
+# ====== 2. Fit LSH Model ======
+def fit_lsh_model(reduced_df):
+    if reduced_df.isEmpty():
+        return None
+
     lsh = BucketedRandomProjectionLSH(
-        inputCol="reduced_features",  # Use reduced features after PCA
+        inputCol="reduced_features",
         outputCol="hashes",
         bucketLength=1.0,
         numHashTables=5
     )
-    model = lsh.fit(tfidf_df)  # Fit the LSH model only once
-    return model
+    return lsh.fit(reduced_df)
 
-# ==== FIND KNN ======
+# ====== 3. Approx KNN Search ======
 def find_knn(lsh_model, new_batch_df, history_df, top_k=TOP_K):
+    if new_batch_df.isEmpty() or history_df.isEmpty():
+        return None
+
     joined = lsh_model.approxSimilarityJoin(
         new_batch_df.select("episode_id", "reduced_features"),
         history_df.select("episode_id", "reduced_features"),
@@ -69,49 +71,56 @@ def find_knn(lsh_model, new_batch_df, history_df, top_k=TOP_K):
         col("datasetA.episode_id").alias("new_podcast"),
         col("datasetB.episode_id").alias("historical_podcast"),
         col("distCol").alias("distance")
-    )
-
-    result = result.filter(col("new_podcast") != col("historical_podcast"))
+    ).filter(col("new_podcast") != col("historical_podcast"))
 
     w = Window.partitionBy("new_podcast").orderBy("distance")
     return result.withColumn("rank", row_number().over(w)) \
                  .filter(col("rank") <= top_k) \
                  .drop("rank")
 
-# ====== RUN BATCH ======
-if __name__ == "__main__":
-    # Use cache to avoid recomputing tfidf in case of repeated operations
-    new_batch = compute_tfidf_embeddings(INPUT_DELTA_LAKE).cache()
 
+# ====== RUN BATCH JOB ======
+if __name__ == "__main__":
+    # 1. Compute TF-IDF + PCA for today
+    new_batch = compute_tfidf_embeddings(INPUT_DELTA_LAKE)
+    
+    if new_batch is None or new_batch.isEmpty():
+        exit(0)
+
+    new_batch = new_batch.cache()
+
+    # 2. Load historical vectors
     try:
         history = spark.read.format("delta").load(VECTORS_DELTA_LAKE).cache()
     except AnalysisException:
-        print("No history found — starting fresh.")
         history = spark.createDataFrame([], new_batch.schema)
 
-    # Check if there is new data and history
-    if not new_batch.isEmpty() and not history.isEmpty():
-        # Fit the LSH model using historical vectors
+    # 3. Train LSH and compute similarities
+    if not history.isEmpty():
         lsh_model = fit_lsh_model(history)
-        
-        # Find KNN similarities
-        knn_df = find_knn(lsh_model, new_batch, history) \
-                    .withColumn("date", lit(CURRENT_DATE))
-        
-        knn_df = knn_df.dropDuplicates(["new_podcast", "historical_podcast"])
 
-        # Save KNN similarities to Delta Lake
-        knn_df.write.format("delta") \
-            .mode("append") \
-            .partitionBy("date") \
-            .save("/data_lake/knn_similarities")
-        
-        # Optionally, store the similarities in a different path
-        knn_df.write.format("delta").save(SIMILARITIES_DELTA_LAKE)
+        if lsh_model:
+            knn_df = find_knn(lsh_model, new_batch, history)
 
-        # Update historical vector set
-        updated = history.union(new_batch).dropDuplicates(["episode_id"])
-        updated.write.format("delta").mode("overwrite").save(VECTORS_DELTA_LAKE)
+            if knn_df is not None and not knn_df.isEmpty():
+                knn_df = knn_df.withColumn("date", lit(CURRENT_DATE)) \
+                               .dropDuplicates(["new_podcast", "historical_podcast"])
 
+                # Save to Delta
+                knn_df.write.format("delta") \
+                    .mode("append") \
+                    .partitionBy("date") \
+                    .save(SIMILARITIES_DELTA_LAKE)
+
+                print(f"[INFO] Saved {knn_df.count()} similarities to {SIMILARITIES_DELTA_LAKE}.")
+            else:
+                print("[INFO] No similar pairs found — skipping write.")
+        else:
+            print("[WARN] LSH model was not trained properly.")
     else:
-        print("Skipping similarity search — no data.")
+        print("[INFO] History empty — skipping similarity join.")
+
+    # 4. Update historical TF-IDF vector store
+    updated = history.union(new_batch).dropDuplicates(["episode_id"])
+    updated.write.format("delta").mode("overwrite").save(VECTORS_DELTA_LAKE)
+    print(f"[INFO] Updated historical TF-IDF vectors at {VECTORS_DELTA_LAKE}.")
