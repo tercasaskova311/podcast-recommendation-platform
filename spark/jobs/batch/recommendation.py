@@ -52,7 +52,7 @@ def generate_recommendations(podcast_similarities, active_users_df):
         col("sim.cosine_similarity")
     )
 
-    # --- Final hybrid score ---
+    # --- Final hybrid score --- = it simply is a weighted sum - now it is set to user_ behaior (ALS) 70% a transcribts of podcasts 30% = meaning we do trust in recommendation more to user behavior....
     hybrid = hybrid.withColumn(
         "final_score",
         ALPHA * col("als_score") + (1 - ALPHA) * col("cosine_similarity")
