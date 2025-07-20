@@ -12,20 +12,17 @@ import os
 
 spark = SparkSession.builder.appName("TranscriptsBatch").getOrCreate()
 
-
 # Kafka Config
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_URL")
-TOPIC_METADATA = os.getenv("TOPIC_EPISODE_METADATA")
 CURRENT_DATE = datetime.date.today().isoformat()
 TOP_K = 3
-DELTA_LAKE_PATH = "/data_lake/transcripts_en"
-HISTORICAL_VECTORS_PATH = "/data_lake/tfidf_vectors"
-SIMILARITY_PATH = "/data_lake/similarities"  # Define the similarity output path
+INPUT_DELTA_LAKE = "/data_lake/transcripts_en"
+VECTORS_DELTA_LAKE = "/data_lake/tfidf_vectors"
+SIMILARITIES_DELTA_LAKE = "/data_lake/similarities"  # Define the similarity output path
 
 
 #==== TEXT PROCESSING: TF-IDF Embeddings ====
 def compute_tfidf_embeddings(delta_path):
-    transcripts_df = spark.read.format("delta").load(DELTA_LAKE_PATH) \
+    transcripts_df = spark.read.format("delta").load(INPUT_DELTA_LAKE) \
         .filter(col("date") == CURRENT_DATE) \
         .select("episode_id", "transcript")
 
@@ -84,10 +81,10 @@ def find_knn(lsh_model, new_batch_df, history_df, top_k=TOP_K):
 # ====== RUN BATCH ======
 if __name__ == "__main__":
     # Use cache to avoid recomputing tfidf in case of repeated operations
-    new_batch = compute_tfidf_embeddings(DELTA_LAKE_PATH).cache()
+    new_batch = compute_tfidf_embeddings(INPUT_DELTA_LAKE).cache()
 
     try:
-        history = spark.read.format("delta").load(HISTORICAL_VECTORS_PATH).cache()
+        history = spark.read.format("delta").load(VECTORS_DELTA_LAKE).cache()
     except AnalysisException:
         print("No history found — starting fresh.")
         history = spark.createDataFrame([], new_batch.schema)
@@ -110,11 +107,11 @@ if __name__ == "__main__":
             .save("/data_lake/knn_similarities")
         
         # Optionally, store the similarities in a different path
-        knn_df.write.format("delta").save(SIMILARITY_PATH)
+        knn_df.write.format("delta").save(SIMILARITIES_DELTA_LAKE)
 
         # Update historical vector set
         updated = history.union(new_batch).dropDuplicates(["episode_id"])
-        updated.write.format("delta").mode("overwrite").save(HISTORICAL_VECTORS_PATH)
+        updated.write.format("delta").mode("overwrite").save(VECTORS_DELTA_LAKE)
 
     else:
         print("Skipping similarity search — no data.")
