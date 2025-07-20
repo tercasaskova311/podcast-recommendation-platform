@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 def train_als_model():
     logging.info("Loading engagement aggregates for ALS training.")
     
-    # Load aggregated engagement scores from MongoDB or Delta Lake
+    # Load aggregated engagement scores from MongoDB 
     als_input = spark.read.format("mongo").load(ENGAGEMENT_AGG_PATH)
 
     # ALS model configuration with optimized hyperparameters
