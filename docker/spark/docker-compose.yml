@@ -17,7 +17,7 @@ services:
     container_name: spark-worker-1
     environment:
       - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_MASTER_URL=${SPARK_URL}
 
     volumes:
       - ${PWD}/spark:/opt/spark_jobs
@@ -30,48 +30,48 @@ services:
     networks:
       - kafka-net
 
-  spark-worker-2:
-    image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
-    container_name: spark-worker-2
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+  # spark-worker-2:
+  #   image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
+  #   container_name: spark-worker-2
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER_URL=${SPARK_URL}
 
-    volumes:
-      - ${PWD}/spark:/opt/spark_jobs
-      - ${PWD}/scripts:/opt/scripts
-      - ${PWD}/data:/data
-    env_file:
-      - ../../.env.development
-    depends_on:
-      - spark-master
-    networks:
-      - kafka-net
+  #   volumes:
+  #     - ${PWD}/spark:/opt/spark_jobs
+  #     - ${PWD}/scripts:/opt/scripts
+  #     - ${PWD}/data:/data
+  #   env_file:
+  #     - ../../.env.development
+  #   depends_on:
+  #     - spark-master
+  #   networks:
+  #     - kafka-net
 
-  spark-worker-3:
-    image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
-    container_name: spark-worker-3
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
+  # spark-worker-3:
+  #   image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
+  #   container_name: spark-worker-3
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER_URL=${SPARK_URL}
 
-    volumes:
-      - ${PWD}/spark:/opt/spark_jobs
-      - ${PWD}/scripts:/opt/scripts
-      - ${PWD}/data:/data
-    env_file:
-      - ../../.env.development
-    depends_on:
-      - spark-master
-    networks:
-      - kafka-net
+  #   volumes:
+  #     - ${PWD}/spark:/opt/spark_jobs
+  #     - ${PWD}/scripts:/opt/scripts
+  #     - ${PWD}/data:/data
+  #   env_file:
+  #     - ../../.env.development
+  #   depends_on:
+  #     - spark-master
+  #   networks:
+  #     - kafka-net
 
   spark-streaming: #always-on container (streaming data)
     image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
     container_name: spark-streaming
     command: ["python", "main.py", "--job", "streaming"]
     environment:
-      - PYSPARK_SUBMIT_ARGS=--master spark://spark-master:7077 pyspark-shell
+      - PYSPARK_SUBMIT_ARGS=--master ${SPARK_URL} pyspark-shell
 
     env_file:
       - ../../.env.development
@@ -84,8 +84,8 @@ services:
     depends_on:
       - spark-master
       - spark-worker-1
-      - spark-worker-2
-      - spark-worker-3
+      #- spark-worker-2
+      #- spark-worker-3
     networks:
       - kafka-net
 

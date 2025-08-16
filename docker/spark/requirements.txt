@@ -1,8 +1,10 @@
-pyspark==3.5.0
-delta-spark==3.1.0
+# pyspark==3.5.0
+# delta-spark==3.1.0
+# ffmpeg==1.4.0
+# #torch==2.7.1 no needed
+# pydub==0.25.1
+# faster-whisper==1.1.1
 
-
-
-torch==2.7.1
+ffmpeg==1.4.0
 pydub==0.25.1
 faster-whisper==1.1.1

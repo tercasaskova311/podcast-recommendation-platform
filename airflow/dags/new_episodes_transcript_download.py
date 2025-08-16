@@ -29,13 +29,14 @@ with DAG(
     new_episodes_get_transcripts = SparkSubmitOperator(
         task_id='new_episodes_get_transcripts',
         application='/opt/spark_jobs/main.py',
-        application_args=['--job', 'new-episodes-get-transcripts'],
-        conn_id='spark_default',
+        application_args=['--job', 'download-transcripts-pipeline'],
         packages='org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0',
         conf={
             "spark.master": SPARK_URL,
             "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
             "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+            "spark.driverEnv.PYTHONPATH": "/opt/spark_jobs", 
+            "spark.executorEnv.PYTHONPATH": "/opt/spark_jobs"
         },
         env_vars={
             'PYTHONPATH': '/opt/spark_jobs',

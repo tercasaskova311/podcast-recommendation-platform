@@ -5,25 +5,34 @@ from pyspark.sql import Row
 from faster_whisper import WhisperModel
 from util.audio import stream_download, convert_to_wav
 
-MODEL = WhisperModel("tiny.en", device="cuda", compute_type="int8")
+# Executor-side singleton
+_MODEL = None
+
+def _get_model():
+    global _MODEL
+    if _MODEL is None:
+        # Create once per Python worker process on the executor
+        _MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+    return _MODEL
 
 def generate_transcript(wav_segment, chunk_ms=6 * 60 * 1000):
     try:
         chunks = [wav_segment[i:i+chunk_ms] for i in range(0, len(wav_segment), chunk_ms)]
         segments = []
+        model = _get_model()
         for chunk in chunks:
             buf = io.BytesIO()
             chunk.export(buf, format="wav")
             buf.seek(0)
-            s, _ = MODEL.transcribe(buf, beam_size=1)
+            s, _ = model.transcribe(buf, beam_size=1)  # no vad_filter => no torch needed
             segments.extend(s)
         return " ".join(seg.text for seg in segments)
     except Exception as e:
         print(f"Transcription error: {e}")
         return None
 
-def process_batch(df):
-    def process_row(row):
+def _process_rows(iter_rows):
+    for row in iter_rows:
         try:
             data = json.loads(row.json_str)
             episode_id = row.episode_id
@@ -41,7 +50,7 @@ def process_batch(df):
             transcript = generate_transcript(wav)
             failed = transcript is None
 
-            return Row(
+            yield Row(
                 episode_id=episode_id,
                 title=title,
                 audio_url=url,
@@ -53,6 +62,7 @@ def process_batch(df):
             )
         except Exception as e:
             print(f"Error processing episode {row.episode_id}: {e}")
-            return None
+            # skip row
 
-    return df.rdd.map(process_row).filter(lambda r: r is not None).toDF()
+def process_batch(df):
+    return df.rdd.mapPartitions(_process_rows).toDF()

@@ -2,8 +2,8 @@ import json
 import os
 import io
 import time
-import torch
 import requests
+from config.settings import KAFKA_URL, TOPIC_EPISODE_METADATA, DELTA_PATH
 from kafka import KafkaConsumer, KafkaProducer
 from multiprocessing import Pool, current_process
 from pydub import AudioSegment
@@ -13,12 +13,9 @@ from pyspark.sql.types import StructType, StringType
 
 # ====== CONFIG ======
 MODEL_SIZE = "tiny.en"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cpu"
 COMPUTE_TYPE = "int8"
 MAX_WORKERS = 1
-KAFKA_URL = "kafka1:9092"
-TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST", "raw-podcast-metadata")
-TOPIC_TRANSCRIPTS = "transcripts-en"
 DELTA_OUTPUT_PATH = "/data_lake/transcripts_en"
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -99,16 +96,6 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
         spark.stop()
 
         # Send transcript to Kafka
-        producer = KafkaProducer(
-            bootstrap_servers=KAFKA_URL,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
-        )
-        producer.send(TOPIC_TRANSCRIPTS, {
-            "episode_id": episode_id,
-            "transcript": transcript_text
-        })
-        producer.flush()
-        producer.close()
 
         print(f"[{title}]  Done")
 
@@ -119,7 +106,7 @@ def transcribe_episode(episode, chunk_length_ms=6 * 60 * 1000):
 if __name__ == "__main__":
     print("🎧 Starting Kafka Transcription Consumer...")
     consumer = KafkaConsumer(
-        TOPIC_RAW_PODCAST,
+        TOPIC_EPISODE_METADATA,
         bootstrap_servers=KAFKA_URL,
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
         auto_offset_reset='earliest',
