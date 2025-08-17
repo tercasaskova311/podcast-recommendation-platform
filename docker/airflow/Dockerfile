@@ -16,7 +16,7 @@ RUN curl -fsSL https://downloads.apache.org/spark/spark-3.5.6/spark-3.5.6-bin-ha
     ln -s /opt/spark-3.5.6-bin-hadoop3 /opt/spark
 
 # Installa ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+#RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Variabili ambiente
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64

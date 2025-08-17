@@ -3,7 +3,7 @@ import os
 import io
 import time
 import requests
-from config.settings import KAFKA_URL, TOPIC_EPISODE_METADATA, DELTA_PATH
+from config.settings import KAFKA_URL, TOPIC_EPISODE_METADATA
 from kafka import KafkaConsumer, KafkaProducer
 from multiprocessing import Pool, current_process
 from pydub import AudioSegment

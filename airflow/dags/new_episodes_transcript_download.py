@@ -6,8 +6,6 @@ import yaml
 import os
 
 # Now use the environment variables
-KAFKA_URL = os.getenv("KAFKA_URL")
-TOPIC_RAW_PODCAST = os.getenv("TOPIC_RAW_PODCAST")
 SPARK_URL= os.getenv("SPARK_URL")
 
 with open('/opt/airflow/config/schedule_config.yaml') as f:
@@ -33,11 +31,16 @@ with DAG(
         packages='org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0',
         conf={
             "spark.master": SPARK_URL,
-            "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
-            "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+            "spark.submit.deployMode": "client",
             "spark.driverEnv.PYTHONPATH": "/opt/spark_jobs", 
-            "spark.executorEnv.PYTHONPATH": "/opt/spark_jobs"
+            "spark.executorEnv.PYTHONPATH": "/opt/spark_jobs",
+            "spark.executor.memoryOverhead": 1024,
+            "spark.network.timeout": 600,
+            "spark.executor.heartbeatInterval": 60
         },
+        name="new_episodes_get_transcripts",
+        driver_memory="2g",
+        executor_memory="2g",
         env_vars={
             'PYTHONPATH': '/opt/spark_jobs',
             'JAVA_HOME': '/usr/lib/jvm/java-17-openjdk-amd64'

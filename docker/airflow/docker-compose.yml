@@ -52,6 +52,7 @@ services:
       - ${PWD}/airflow/config:/opt/airflow/config
       - ${PWD}/spark:/opt/spark_jobs
       - ${PWD}/scripts:/opt/scripts
+      - ${PWD}/data:/data
     command: scheduler
     networks:
       - kafka-net

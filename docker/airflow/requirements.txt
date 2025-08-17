@@ -1,11 +1,10 @@
+#Driver side
+delta-spark==3.1.0
 apache-airflow-providers-apache-spark==4.2.0
-six==1.17.0
-kafka-python==2.2.11
+PyYAML==6.0.2
 python-dotenv==1.0.1
 langdetect==1.0.9
-
-pyspark==3.5.6
-delta-spark==3.1.0
-ffmpeg==1.4.0
-pydub==0.25.1
-faster-whisper==1.1.1
+coloredlogs
+humanfriendly
+kafka-python==2.2.11
+requests==2.32.3

@@ -102,7 +102,7 @@ airflow-logs:
 # --- General Aggregate Commands ---
 up: kafka-up mongo-up spark-up airflow-up
 
-down: kafka-down mongo-down spark-down airflow-down
+down: mongo-down spark-down airflow-down kafka-down
 
 restart: down up
 
