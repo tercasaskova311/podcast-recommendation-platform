@@ -88,10 +88,8 @@ if __name__ == "__main__":
     print(" Loading historical data...")
 
     try:
-        history = spark.read.parquet(HISTORICAL_VECTORS_PATH)
-        print("Historical data loaded.")
+        history = spark.read.write.format("delta").save(path)
     except:
-        print("No historical data found. Initializing empty.")
         history = spark.createDataFrame([], new_batch.schema)
     '''
     This does the following: Tries to load previously saved 
@@ -103,11 +101,7 @@ if __name__ == "__main__":
     this history variable.'''
     history.cache()
 
-    print(f"New podcasts: {new_batch.count()}")
-    print(f" Historical podcasts: {history.count()}")
-
     if history.count() > 0 and new_batch.count() > 0:
-        print(" Training LSH model on historical data...")
         lsh_model = fit_lsh_model(history)
 
         print(" Finding nearest neighbors...")
@@ -120,4 +114,4 @@ if __name__ == "__main__":
     updated_history = history.union(new_batch).dropDuplicates(["podcast_id"])
     updated_history.write.mode("overwrite").parquet(HISTORICAL_VECTORS_PATH) #now it is set up to save as parquet to I save in data lake? but idk if that is correct
 
-    print("Daily podcast similarity batch complete.")
+    print("Dail y podcast similarity batch complete.")
