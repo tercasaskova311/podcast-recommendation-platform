@@ -12,8 +12,6 @@ DELTA_PATH_TRANSCRIPTS = os.getenv("DELTA_PATH_TRANSCRIPTS")
 def main():
     spark = get_spark()
 
-    #spark.conf.set("spark.sql.shuffle.partitions", "8")
-
     df = read_sample_json(spark, SAMPLE_EPISODES_JSON_PATH)
 
     print("=== new_eps_df ===")
