@@ -15,6 +15,7 @@ spark = SparkSession.builder \
     .config("spark.sql.shuffle.partitions", "200")  # Increased shuffle partitions for scalability
     .config("spark.mongodb.output.uri", MONGO_URI)  # MongoDB integration
     .getOrCreate()
+    
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

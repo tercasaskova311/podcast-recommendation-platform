@@ -135,7 +135,7 @@ def discover_and_publish_new_episodes():
         # Send ID to tracking topic
         producer.send(
             TOPIC_EPISODES_ID,
-            key=str(episode_id).encode('utf-8') if episode_id else None,
+            key=xstr(episode_id).encode('utf-8') if episode_id else None,
             value=str(episode_id)
         )
 
