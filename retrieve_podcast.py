@@ -31,7 +31,7 @@ headers = {
 
 #====== RETRIEVED TOP__ TRENDING PODCASTS =========
 url = "https://api.podcastindex.org/api/1.0/podcasts/trending"
-params = {"max": 200}  # Get up to 200 trending podcasts
+params = {"max": 50}  # Get up to 200 trending podcasts
 
 response = requests.get(url, headers=headers, params=params)
 trending_podcasts = response.json().get("feeds", [])
@@ -121,4 +121,4 @@ for podcast in podcasts:
 with open("top_episodes.json", "w") as f:
     json.dump(all_episodes, f, indent=4)
 
-print(f"✅ Saved {len(all_episodes)} episodes to top_episodes.json")
+print(f"Saved {len(all_episodes)} episodes to top_episodes.json")
