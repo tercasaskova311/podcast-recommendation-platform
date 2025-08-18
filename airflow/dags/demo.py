@@ -7,7 +7,7 @@ import os
 
 SPARK_URL= os.getenv("SPARK_URL")
 
-with DAG('demo_transcript_pipeline',
+with DAG('demo',
         schedule_interval=None,
         start_date = datetime(2025, 1, 1),
         catchup=False,

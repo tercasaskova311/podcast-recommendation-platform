@@ -33,10 +33,9 @@ services:
   spark-streaming: #always-on container (streaming data)
     image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
     container_name: spark-streaming
-    command: ["python", "main.py", "--job", "streaming"]
+    command: ["python", "main.py", "--job", "streaming_user_events_pipeline"]
     environment:
       - PYSPARK_SUBMIT_ARGS=--master ${SPARK_URL} pyspark-shell
-
     env_file:
       - ../../.env.development
     volumes:

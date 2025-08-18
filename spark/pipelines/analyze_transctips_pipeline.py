@@ -1,9 +1,9 @@
-from pyspark.sql import SparkSession
 from util.common import get_spark
 
 def run_pipeline():
     spark = get_spark()
 
+    print("IM HERE")
     #filtered_df = get_unprocessed_episodes(spark, kafka_df, DELTA_PATH_EPISODES)
     #transcript_df = process_batch(filtered_df)
 

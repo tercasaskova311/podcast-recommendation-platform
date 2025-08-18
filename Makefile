@@ -45,6 +45,9 @@ create-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
 		--bootstrap-server kafka1:9092 --create --if-not-exists \
 		--topic $(TOPIC_EPISODES_ID) --partitions 3 --replication-factor 3 --config retention.ms=-1  --config cleanup.policy=compact
+	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
+		--bootstrap-server kafka1:9092 --create --if-not-exists \
+		--topic $(TOPIC_USER_EVENTS_STREAMING) --partitions 6 --replication-factor 3 --config retention.ms=604800000
 
 list-topics:
 	docker-compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 kafka-topics.sh \
