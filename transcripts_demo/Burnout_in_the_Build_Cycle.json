@@ -1,0 +1,9 @@
+{
+  "podcast": "Mindful Engineering",
+  "episode_id": 910020012,
+  "episode_title": "Burnout in the Build Cycle",
+  "audio_url": "https://cdn.mindfuleng.org/s2/e10.mp3",
+  "duration_seconds": 2400.7,
+  "text": "Engineering isn’t just about code—it’s about the humans writing it. Burnout arises when effort is constant but recovery is rare. The sprint never ends, and context-switching multiplies stress.\n\nOne way teams fight this is by creating clear stop lines: no deploys after a certain hour, no expectation of instant Slack replies. Another is reframing productivity not as hours worked but as sustainable creativity. Companies that treat engineers like replaceable cogs often discover that talent quietly leaves.\n\nIn this episode, we talk with developers who’ve taken sabbaticals, companies experimenting with four-day weeks, and managers learning that protecting energy is protecting output.",
+  "created_at": 1755524012
+}
