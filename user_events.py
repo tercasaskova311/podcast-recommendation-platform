@@ -30,8 +30,7 @@ NUMBER_OF_USERS = 300
 START_DATE = "-1d"
 END_DATE = "+1d"
 user_ids = [str(uuid.uuid4()) for _ in range(NUMBER_OF_USERS)]
-event_ids = {"play": 0,
-             "pause": 1,
+event_ids = {"pause": 1,
              "like": 2,
              "skip": 3,
              "rate": 4,
