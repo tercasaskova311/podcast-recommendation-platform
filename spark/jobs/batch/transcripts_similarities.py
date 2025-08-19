@@ -1,126 +1,171 @@
+# file: batch_knn_option_a.py
 from pyspark.sql import SparkSession
-from pyspark.ml.feature import Tokenizer, HashingTF, IDF, BucketedRandomProjectionLSH, PCA
-from pyspark.sql.functions import col, row_number, lit
-from pyspark.sql.window import Window
+from pyspark.sql.functions import col, lit
 from pyspark.errors import AnalysisException
+import numpy as np
 import datetime
 import os
 
-# ====== CONFIG (define if not already) ======
-INPUT_DELTA_LAKE = "/data_lake/transcripts_en"
-VECTORS_DELTA_LAKE = "/data_lake/tfidf_vectors"
-SIMILARITIES_DELTA_LAKE = "/data_lake/similarities"
-CURRENT_DATE = datetime.date.today().isoformat()
-TOP_K = 3 #num of top k simular podcasts to commpute
+# ---------------- CONFIG ----------------
+INPUT_DELTA_LAKE        = "/data_lake/transcripts_en"      # columns: episode_id, date, transcript, ...
+VECTORS_DELTA_LAKE      = "/data_lake/episode_vectors"     # columns: episode_id, model, embedding (array<float>), created_at
+SIMILARITIES_DELTA_LAKE = "/data_lake/similarities"        # columns: date, new_episode_id, historical_episode_id, distance, k, model
+TODAY                   = os.environ.get("BATCH_DATE", datetime.date.today().isoformat())
+MODEL_NAME              = "sentence-transformers/all-MiniLM-L6-v2"   # 384-d
+TOP_K                   = 3
+MAX_TOKENS              = 256
+OVERLAP                 = 32
 
-spark = SparkSession.builder.appName("Transcript_Similarity").getOrCreate()
+spark = (SparkSession.builder
+    .appName("Podcast_ExactKNN_OptionA")
+    .config("spark.mongodb.write.connection.uri", os.environ.get("MONGO_URI"))
+    .getOrCreate())
 
-# ====== 1. TF-IDF + PCA ======
-def compute_tfidf_embeddings(delta_path):
-    transcripts_df = spark.read.format("delta").load(delta_path) \
-        .filter(col("date") == CURRENT_DATE) \
-        .select("episode_id", "transcript")
-
-    if transcripts_df.isEmpty():
-        return None
-
-    # Tokenization
-    tokenizer = Tokenizer(inputCol="transcript", outputCol="words")
-    words_df = tokenizer.transform(transcripts_df)
-
-    # TF-IDF
-    tf = HashingTF(inputCol="words", outputCol="rawFeatures", numFeatures=100)
-    tf_df = tf.transform(words_df)
-
-    idf = IDF(inputCol="rawFeatures", outputCol="features")
-    idf_model = idf.fit(tf_df)
-    tfidf_df = idf_model.transform(tf_df)
-
-    # PCA - because LSH would be hardly computed otherwise....
-    pca = PCA(k=100, inputCol="features", outputCol="reduced_features")
-    pca_model = pca.fit(tfidf_df)
-    reduced_df = pca_model.transform(tfidf_df)
-
-    return reduced_df.select("episode_id", "reduced_features")
-
-# ====== 2. Fit LSH Model ======
-def fit_lsh_model(reduced_df):
-    if reduced_df.isEmpty():
-        return None
-
-    lsh = BucketedRandomProjectionLSH(
-        inputCol="reduced_features",
-        outputCol="hashes",
-        bucketLength=1.0,
-        numHashTables=5
-    )
-    return lsh.fit(reduced_df)
-
-# ====== 3. Approx KNN Search ======
-def find_knn(lsh_model, new_batch_df, history_df, top_k=TOP_K):
-    if new_batch_df.isEmpty() or history_df.isEmpty():
-        return None
-
-    joined = lsh_model.approxSimilarityJoin(
-        new_batch_df.select("episode_id", "reduced_features"),
-        history_df.select("episode_id", "reduced_features"),
-        threshold=float("inf")
-    )
-
-    result = joined.select(
-        col("datasetA.episode_id").alias("new_podcast"),
-        col("datasetB.episode_id").alias("historical_podcast"),
-        col("distCol").alias("distance")
-    ).filter(col("new_podcast") != col("historical_podcast"))
-
-    w = Window.partitionBy("new_podcast").orderBy("distance")
-    return result.withColumn("rank", row_number().over(w)) \
-                 .filter(col("rank") <= top_k) \
-                 .drop("rank")
-
-
-# ====== RUN BATCH JOB ======
-if __name__ == "__main__":
-    # 1. Compute TF-IDF + PCA for today
-    new_batch = compute_tfidf_embeddings(INPUT_DELTA_LAKE)
-    
-    if new_batch is None or new_batch.isEmpty():
-        exit(0)
-
-    new_batch = new_batch.cache()
-
-    # 2. Load historical vectors
+def df_is_empty(df):
     try:
-        history = spark.read.format("delta").load(VECTORS_DELTA_LAKE).cache()
-    except AnalysisException:
-        history = spark.createDataFrame([], new_batch.schema)
+        return df.isEmpty()
+    except AttributeError:
+        return df.limit(1).count() == 0
 
-    # 3. Train LSH and compute similarities
-    if not history.isEmpty():
-        lsh_model = fit_lsh_model(history)
+# --------- 1) LOAD TODAY'S TRANSCRIPTS ---------
+trans_df = (
+    spark.read.format("delta").load(INPUT_DELTA_LAKE)
+         .where(col("date") == TODAY)
+         .select("episode_id", "transcript")
+)
 
-        if lsh_model:
-            knn_df = find_knn(lsh_model, new_batch, history)
+if df_is_empty(trans_df):
+    spark.stop()
+    raise SystemExit(0)
 
-            if knn_df is not None and not knn_df.isEmpty():
-                knn_df = knn_df.withColumn("date", lit(CURRENT_DATE)) \
-                               .dropDuplicates(["new_podcast", "historical_podcast"])
+# Collect rows to driver for embedding 
+pdf = trans_df.toPandas()  # pulls all rows (already filtered by date)
+episode_ids = pdf["episode_id"].astype(str).tolist()
+texts = pdf["transcript"].fillna("").tolist()
 
-                # Save to Delta
-                knn_df.write.format("delta") \
-                    .mode("append") \
-                    .partitionBy("date") \
-                    .save(SIMILARITIES_DELTA_LAKE)
+# --------- 2) EMBED ON DRIVER (chunked to avoid truncation) ---------
+from sentence_transformers import SentenceTransformer
 
-                print(f"[INFO] Saved {knn_df.count()} similarities to {SIMILARITIES_DELTA_LAKE}.")
-            else:
-                print("[INFO] No similar pairs found — skipping write.")
-        else:
-            print("[WARN] LSH model was not trained properly.")
-    else:
-        print("[INFO] History empty — skipping similarity join.")
+def chunk_text_by_tokens(text, tokenizer, max_tokens=256, overlap=32):
+    # Tokenize once (no truncation)
+    t = tokenizer(
+        text,
+        add_special_tokens=False,
+        return_attention_mask=False,
+        return_token_type_ids=False,
+        truncation=False
+    )
+    ids = t["input_ids"]
+    if not ids:
+        return []
+    stride = max_tokens - overlap
+    chunks = []
+    for start in range(0, len(ids), stride):
+        end = start + max_tokens
+        chunk_ids = ids[start:end]
+        chunk_text = tokenizer.decode(chunk_ids, skip_special_tokens=True)
+        if chunk_text.strip():
+            chunks.append(chunk_text)
+        if end >= len(ids):
+            break
+    return chunks
 
-    # 4. Update historical TF-IDF vector store
-    updated = history.union(new_batch).dropDuplicates(["episode_id"])
-    updated.write.format("delta").mode("overwrite").save(VECTORS_DELTA_LAKE)
-    print(f"[INFO] Updated historical TF-IDF vectors at {VECTORS_DELTA_LAKE}.")
+def embed_long_document(text, model, max_tokens=256, overlap=32):
+    chunks = chunk_text_by_tokens(text, model.tokenizer, max_tokens, overlap)
+    if not chunks:
+        return None
+    # encode returns L2-normalized embeddings when normalize_embeddings=True
+    embs = model.encode(chunks, normalize_embeddings=True)
+    vec = np.mean(embs, axis=0)
+    # re-normalize after pooling
+    vec = vec / (np.linalg.norm(vec) + 1e-8)
+    return vec.astype("float32")
+
+model = SentenceTransformer(MODEL_NAME, device="cuda")  # or "cpu"
+
+episode_vecs = []
+for t in texts:
+    v = embed_long_document(t, model, max_tokens=MAX_TOKENS, overlap=OVERLAP)
+    if v is None:
+        v = np.zeros(model.get_sentence_embedding_dimension(), dtype="float32")
+    episode_vecs.append(v)
+
+# Build Spark DF for new batch vectors (as array<float>)
+new_rows = [(eid, episode_vecs[i].tolist(), MODEL_NAME, TODAY) for i, eid in enumerate(episode_ids)]
+new_vec_df = spark.createDataFrame(
+    new_rows,
+    schema="episode_id string, embedding array<float>, model string, created_at string"
+).cache()
+
+# --------- 3) LOAD HISTORICAL VECTORS (same model) ---------
+try:
+    hist_df = (
+        spark.read.format("delta").load(VECTORS_DELTA_LAKE)
+             .where(col("model") == MODEL_NAME)
+             .select("episode_id", "embedding")
+    )
+except AnalysisException:
+    hist_df = spark.createDataFrame([], "episode_id string, embedding array<float>")
+
+if df_is_empty(hist_df):
+    # First run: nothing to compare with — just store new vectors and exit
+    (new_vec_df.write.format("delta").mode("append").save(VECTORS_DELTA_LAKE))
+    print(f"[INFO] History empty. Stored {new_vec_df.count()} new vectors. Exiting.")
+    spark.stop()
+    raise SystemExit(0)
+
+# --------- 4) BROADCAST HISTORY ---------
+hist_pd = hist_df.toPandas()
+H_ids = hist_pd["episode_id"].astype(str).to_numpy()
+H = np.vstack(hist_pd["embedding"].to_numpy()).astype("float32")
+
+# Ensure normalized (cosine sim assumes L2 norm = 1)
+H_norm = np.linalg.norm(H, axis=1, keepdims=True)
+H_norm[H_norm == 0] = 1.0
+H = H / H_norm
+
+bc_H_ids = spark.sparkContext.broadcast(H_ids)
+bc_H = spark.sparkContext.broadcast(H)
+
+# New batch embeddings as Spark DF
+new_arr_df = new_vec_df.select("episode_id", "embedding")
+
+# --------- 5) Exact KNN per partition (cosine distance = 1 - dot) ---------
+def topk_partition(rows):
+    import numpy as np
+    H = bc_H.value
+    H_ids = bc_H_ids.value
+    for r in rows:
+        qid = r["episode_id"]
+        x = np.array(r["embedding"], dtype=np.float32)
+        n = np.linalg.norm(x)
+        if n == 0:
+            continue
+        x /= n
+        sims = H.dot(x)                 # cosine similarity
+        k = min(TOP_K, sims.shape[0])
+        if k == 0:
+            continue
+        idx = np.argpartition(-sims, k-1)[:k]
+        idx = idx[np.argsort(-sims[idx])]
+        for j in idx:
+            distance = float(1.0 - sims[j])   # cosine distance
+            yield (qid, str(H_ids[j]), distance, TOP_K)
+
+schema = "new_episode_id string, historical_episode_id string, distance double, k int"
+pairs_df = spark.createDataFrame(new_arr_df.rdd.mapPartitions(topk_partition), schema=schema)
+
+# --------- 6) WRITE OUTPUTS TO MONGO---------
+out_df = (pairs_df
+          .withColumn("date", lit(TODAY))
+          .withColumn("model", lit(MODEL_NAME))
+          .dropDuplicates(["new_episode_id", "historical_episode_id"]))
+
+(out_df.write
+  .format("mongodb")
+  .mode("append")
+  .option("database", os.environ.get("MONGO_DB", "podcasts"))
+  .option("collection", os.environ.get("MONGO_COLLECTION", "similarities"))
+  .save())
+
+spark.stop()

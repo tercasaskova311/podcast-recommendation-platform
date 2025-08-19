@@ -10,3 +10,4 @@ langdetect
 
 pyspark
 python-dotenv
+sentence-transformers
