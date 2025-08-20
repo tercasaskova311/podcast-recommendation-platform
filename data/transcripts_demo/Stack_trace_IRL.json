@@ -1,0 +1,11 @@
+{
+  "podcast": "Stack Trace IRL",
+  "episode_id": 910020010,
+  "episode_title": "When Logs Gaslight You",
+  "audio_url": "https://audio.stacktraceirl.dev/episodes/gaslight-logs.mp3",
+  "duration_seconds": 2215.4,
+  "created_at": 1755524010,
+  "podcast_author": "Stack Trace IRL Team",
+  "podcast_description": "Stack Trace IRL shares insights, stories, and expert conversations for curious listeners.",
+  "text": "Developers rely on logs to understand their systems, but logs can lie. Missing context, outdated messages, or inconsistent log levels create illusions of smooth operation while users face errors.\n\nThis happens because logging is often added reactively. We sprinkle statements during debugging but never revisit them systematically. Over time, logs become a patchwork that tells a partial story.\n\nThe fix is intentional logging: deciding what questions you want answered during incidents, and logging accordingly. Think of logs as a narrative you write for your future self. Good logs don’t gaslight—they guide. They are the difference between chasing ghosts at 2am and resolving an outage in minutes."
+}

@@ -1,9 +1,0 @@
-{
-    "podcast": "The Curious Physicist",
-    "episode_id": 910020005,
-    "episode_title": "Entropy in Your Kitchen",
-    "audio_url": "https://stream.curiousphysicist.org/episodes/entropy-kitchen.mp3",
-    "duration_seconds": 2577.9,
-    "text": "Entropy sounds abstract, but you encounter it every day when cooking. Why does an ice cube melt in a warm drink? Why does cream mix into coffee instead of unmixing? These everyday processes illustrate the second law of thermodynamics: systems naturally evolve toward states with more possible arrangements.\n\nTake the melting ice. There are vastly more ways for water molecules to arrange as liquid than as solid, so the system tends to melt. It’s not that ice prefers disorder—it’s just that disorder has higher probability. Similarly, stirring cream into coffee creates millions of microscopic patterns. The chance of them spontaneously reverting to a pristine separation is astronomically low.\n\nEntropy is thus not about chaos in the colloquial sense, but about probability and arrangements. The next time you cook pasta, remember: the diffusion of salt into the water is entropy at work.",
-    "created_at": 1755524005
-  }

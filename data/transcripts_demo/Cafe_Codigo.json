@@ -1,0 +1,11 @@
+{
+  "podcast": "Café Código",
+  "episode_id": 910020003,
+  "episode_title": "Rust or Bust?",
+  "audio_url": "https://audio.cafecodigo.lat/season3/rust-or-bust.mp3",
+  "duration_seconds": 3055.44,
+  "created_at": 1755524003,
+  "podcast_author": "Café Código Team",
+  "podcast_description": "Spanish-language podcast diving into software engineering, languages, and the future of programming.",
+  "text": "In today’s episode we confront a big question in modern systems programming: is Rust really the future? The language promises memory safety without garbage collection, an enticing proposition for developers who know the pain of segmentation faults or dangling pointers.\n\nRust’s borrow checker can feel strict, like a librarian insisting that every borrowed book must be returned before you can borrow another. But that strictness eliminates a whole category of bugs that plague C and C++ programs. The result is code that is both safe and blazing fast.\n\nWe’ll explore real-world examples: Rust powering parts of the Linux kernel, game engines written in Rust for performance-critical loops, and startups adopting it for blockchain nodes. Of course, the language isn’t perfect—it has a steep learning curve, and compile times are notorious. But when you weigh the safety guarantees against these drawbacks, you begin to see why the industry says: it’s Rust, or bust."
+}

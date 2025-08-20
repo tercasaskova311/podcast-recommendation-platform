@@ -1,0 +1,11 @@
+{
+  "podcast": "Quant Notes",
+  "episode_id": 910020007,
+  "episode_title": "The Geometry of PCA",
+  "audio_url": "https://quantnotes.io/episodes/geom-pca.mp3",
+  "duration_seconds": 2310.66,
+  "created_at": 1755524007,
+  "podcast_author": "Quant Notes Team",
+  "podcast_description": "Quant Notes shares insights, stories, and expert conversations for curious listeners.",
+  "text": "Principal Component Analysis is often taught with linear algebra formulas, but it helps to picture it geometrically. Imagine your dataset as a cloud of points. The goal is to rotate the axes so that they align with the directions of maximum variance. These directions are the principal components.\n\nThe first component captures the longest stretch of the cloud; the second captures the next longest, orthogonal to the first. By projecting data onto these axes, we reduce dimensions while preserving most of the structure.\n\nThis geometric intuition shows why PCA is used in fields from finance to genetics. In stock markets, it identifies underlying factors that move prices together. In biology, it condenses gene expression data. Thinking of PCA as simply rotating your perspective helps ground the math in a picture you can visualize."
+}

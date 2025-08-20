@@ -1,0 +1,11 @@
+{
+  "podcast": "Neural Currents",
+  "episode_id": 910020021,
+  "episode_title": "Synapses and Silicon",
+  "audio_url": "https://neuralcurrents.ai/episodes/synapses.mp3",
+  "duration_seconds": 2360.2,
+  "created_at": 1755585023,
+  "podcast_author": "Neural Currents Team",
+  "podcast_description": "Neural Currents shares insights, stories, and expert conversations for curious listeners.",
+  "text": "Brains and computers both process information, but their methods differ. Neurons fire with chemical signals and variability; transistors flip with electric precision. Comparing them isn’t about finding superiority but inspiration. Neural nets borrow the idea of layers from biology, yet scale them far beyond evolution’s path."
+}

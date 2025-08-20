@@ -1,0 +1,11 @@
+{
+  "podcast": "Syntax & Semantics",
+  "episode_id": 910020008,
+  "episode_title": "Type Hints That Pay Rent",
+  "audio_url": "https://cast.syntaxandsemantics.dev/s2/type-hints.mp3",
+  "duration_seconds": 1744.03,
+  "created_at": 1755524008,
+  "podcast_author": "Syntax & Semantics Team",
+  "podcast_description": "Syntax & Semantics shares insights, stories, and expert conversations for curious listeners.",
+  "text": "Adding type hints to Python code can feel like extra work, but when done well they pay rent. Think of them as railings on a balcony: they don’t block the view, they keep you safe. By annotating function inputs and outputs, you create living documentation for your team.\n\nLinters and IDEs can then catch mismatches before runtime. This saves debugging time and improves code readability. When you revisit code six months later, type hints remind you what each function expects.\n\nThe key is balance. Overly rigid typing can slow down rapid prototyping. But in production systems, the clarity and safety provided by type hints outweigh the cost. Ultimately, they’re not just for the computer—they’re for future you and your teammates."
+}

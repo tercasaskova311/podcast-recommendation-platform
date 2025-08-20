@@ -1,0 +1,11 @@
+{
+  "podcast": "Learning Machines",
+  "episode_id": 910020014,
+  "episode_title": "Gradient Descent as a Road Trip",
+  "audio_url": "https://learnmachines.ai/episodes/gradient-roadtrip.mp3",
+  "duration_seconds": 2044.5,
+  "created_at": 1755524014,
+  "podcast_author": "Learning Machines Team",
+  "podcast_description": "Learning Machines shares insights, stories, and expert conversations for curious listeners.",
+  "text": "Imagine you’re driving through fog, trying to reach the lowest point in a valley. You can’t see the full map—you only sense the slope beneath your tires. That’s gradient descent in a nutshell. At each step, you adjust direction based on slope, moving closer to a minimum.\n\nThe learning rate is your speed: too high and you overshoot; too low and the trip takes forever. Stochastic gradient descent adds randomness, like occasionally taking a side road, which sometimes helps you escape shallow basins.\n\nThis metaphor brings math to life. Neural networks don’t magically know answers—they iteratively inch downhill on an error landscape, guided by gradients. Understanding this picture makes the equations feel almost intuitive."
+}
