@@ -23,14 +23,25 @@ from pyspark.sql.types import DataType
 from sentence_transformers import SentenceTransformer
 from delta.tables import DeltaTable
 
-# Your shared Spark builder
-from util.common import get_spark
+from pyspark.sql import SparkSession
+import os
+def get_spark(app_name="podcast-recs"):
+    delta_pkg = "io.delta:delta-spark_2.12:3.2.0"
+    mongo_pkg = "org.mongodb.spark:mongo-spark-connector_2.12:10.3.0"
+    mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+    return (SparkSession.builder.appName(app_name)
+            .config("spark.jars.packages", f"{delta_pkg},{mongo_pkg}")
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            .config("spark.mongodb.write.connection.uri", mongo_uri)
+            .config("spark.sql.shuffle.partitions","4")
+            .getOrCreate())
 
 
 # ---------------- Paths & Config ----------------
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
-INPUT_DELTA_LAKE        = os.getenv("INPUT_DELTA_LAKE",        f"file://{BASE}/data/delta/transcripts_en")
+INPUT_DELTA_LAKE        = os.getenv("INPUT_DELTA_LAKE",        f"file://{BASE}/data/transcripts_demo")
 VECTORS_DELTA_LAKE      = os.getenv("VECTORS_DELTA_LAKE",      f"file://{BASE}/data/delta/episode_vectors")
 SIMILARITIES_DELTA_LAKE = os.getenv("SIMILARITIES_DELTA_LAKE", f"file://{BASE}/data/delta/similarities")
 
