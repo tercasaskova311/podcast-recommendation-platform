@@ -317,26 +317,20 @@ def run_pipeline():
     )
 
     # 11) Write similarities (Mongo preferred; fallback to Delta)
+    # 11) Write similarities (Mongo preferred; fallback to Delta)
     wrote_similarities = False
     try:
-        writer = out_df.write.format("mongodb").mode("append")
-        if MONGO_URI:
-            writer = writer.option("uri", MONGO_URI)
-        else:
-            # if no full URI, rely on database/collection options; requires a default connector URI in Spark conf
-            writer = writer.option("database", MONGO_DB).option("collection", MONGO_COLLECTION)
+        writer = (out_df.write
+                .format("mongodb")
+                .mode("append")
+                .option("uri", MONGO_URI)              # e.g., mongodb://localhost:27017
+                .option("database", MONGO_DB)          # e.g., podcasts
+                .option("collection", MONGO_COLLECTION))  # e.g., similarities
         writer.save()
         wrote_similarities = True
     except Exception as e:
         print(f"[WARN] Mongo write failed ({e}). Falling back to Delta similarities path.")
-        try:
-            (out_df
-             .withColumnRenamed("created_at","written_at")
-             .write.format("delta").mode("append").option("mergeSchema","true").save(SIMILARITIES_DELTA_LAKE))
-            wrote_similarities = True
-        except Exception as e2:
-            print(f"[ERROR] Delta similarities fallback also failed: {e2}")
-
+    
     # 12) Append new vectors so they become history next run
     (new_vec_df.write
         .format("delta")
