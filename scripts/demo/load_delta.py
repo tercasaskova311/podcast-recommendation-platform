@@ -7,18 +7,15 @@ from pyspark.sql import SparkSession
 
 # ---- Local Spark builder (Delta-enabled) ----
 def get_spark(app_name: str = "load-delta-demo"):
-    """
-    Start a local SparkSession with Delta Lake.
-    Adjust DELTA_PKG if your Spark version differs.
-    - Spark 3.4/3.5 + Scala 2.12 → io.delta:delta-spark_2.12:3.2.0 is fine.
-    """
+    # Pick versions based on Spark+Scala version
     delta_pkg = os.getenv("DELTA_PKG", "io.delta:delta-spark_2.12:3.2.0")
+    mongo_pkg = os.getenv("MONGO_PKG", "org.mongodb.spark:mongo-spark-connector_2.12:10.3.0")
 
     spark = (
         SparkSession.builder
         .appName(app_name)
         .master(os.getenv("SPARK_MASTER", "local[*]"))
-        .config("spark.jars.packages", delta_pkg)
+        .config("spark.jars.packages", f"{delta_pkg},{mongo_pkg}")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         .config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "4"))
