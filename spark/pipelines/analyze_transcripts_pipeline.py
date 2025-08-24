@@ -230,7 +230,7 @@ def run_pipeline() -> None:
         .withColumn("model", lit(MODEL_NAME))
     # store embed-sim clearly named; keep distance for back-compat if you like
         .withColumnRenamed("distance", "distance_embed")
-        .withColumn("created_at", F.current_timestamp())  # BSON Date (enable TTL later)
+        .withColumn("created_at", F.to_utc_timestamp(F.current_timestamp(), "UTC"))
     # avoid cross-model collapse; include model in the dedupe key
         .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
         )
