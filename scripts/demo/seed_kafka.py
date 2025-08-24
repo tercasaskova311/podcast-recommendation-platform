@@ -2,11 +2,7 @@ import json
 import os
 import sys
 from kafka import KafkaProducer
-
-KAFKA_URL = os.getenv("KAFKA_URL")
-TOPIC_EPISODES_ID = os.getenv("TOPIC_EPISODES_ID")
-TOPIC_EPISODE_METADATA = os.getenv("TOPIC_EPISODE_METADATA")
-SAMPLE_EPISODES_JSON_PATH = os.getenv("SAMPLE_EPISODES_JSON_PATH")
+from config.settings import KAFKA_URL, TOPIC_EPISODES_ID, TOPIC_EPISODE_METADATA, SAMPLE_EPISODES_JSON_PATH
 
 
 def main():

@@ -45,13 +45,17 @@ services:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
 #     - AIRFLOW_CONN_SPARK_DEFAULT=spark://?extra__spark__master=${SPARK_URL}
+      - PYTHONPATH=/opt/project
     env_file:
       - ../../.env.development
+    mem_limit: 6g            # hard cap; raise if you still see -9 kills
+    mem_reservation: 2g      # soft reservation; useful under memory pressure
+    cpus: "2.0"              # throttle to 2 vCPUs (or raise if you want more speed)
     volumes:
+      - ${PWD}:/opt/project
+
       - ${PWD}/airflow/dags:/opt/airflow/dags
       - ${PWD}/airflow/config:/opt/airflow/config
-      - ${PWD}/spark:/opt/spark_jobs
-      - ${PWD}/scripts:/opt/scripts
       - ${PWD}/data:/data
     command: scheduler
     networks:
@@ -74,9 +78,7 @@ services:
       - ${PWD}/scripts:/opt/scripts
     entrypoint: /bin/bash
     command: -c "airflow db init && airflow users create --username ${POSTGRES_USER} --password ${POSTGRES_PASSWORD} --firstname ${AIRFLOW_ADMIN_USER_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_USER_LASTNAME} --role ${AIRFLOW_ADMIN_USER_ROLE} --email ${AIRFLOW_ADMIN_USER_EMAIL} &&
-        airflow connections add spark_default \
-      --conn-type Spark
-      --conn-host ${SPARK_URL}"
+        airflow connections add spark_default --conn-type spark --conn-host ${SPARK_URL}"
     networks:
       - kafka-net
 

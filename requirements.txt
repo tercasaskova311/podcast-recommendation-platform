@@ -1,5 +1,4 @@
 kafka-python==2.2.11
-apache-airflow==3.0.1
 python-dotenv==1.0.1
 torch
 requests
@@ -11,3 +10,4 @@ langdetect
 pyspark
 python-dotenv
 sentence-transformers
+delta-spark==3.1.0

@@ -5,6 +5,14 @@ PyYAML==6.0.2
 python-dotenv==1.0.1
 langdetect==1.0.9
 coloredlogs
+aiohttp
 humanfriendly
 kafka-python==2.2.11
 requests==2.32.3
+deltalake==0.18.0
+pyarrow>=14 
+pandas>=2.2
+pydub==0.25.1
+faster-whisper==1.1.1 
+ctranslate2==4.3.1
+onnxruntime==1.18.0

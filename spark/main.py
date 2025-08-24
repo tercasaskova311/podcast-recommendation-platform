@@ -2,7 +2,7 @@ import argparse
 
 from pipelines import (
     download_transcripts_pipeline,
-    analyze_transctips_pipeline,
+    analyze_transcripts_pipeline,
     streaming_user_events_pipeline
 )
 
@@ -19,6 +19,6 @@ args = parser.parse_args()
 if args.job == "download-transcripts-pipeline":
     download_transcripts_pipeline.run_pipeline()
 elif args.job == "analyze-transcripts-pipeline":
-    analyze_transctips_pipeline.run_pipeline()
+    analyze_transcripts_pipeline.run_pipeline()
 elif args.job == "streaming_user_events_pipeline":
     streaming_user_events_pipeline.main()

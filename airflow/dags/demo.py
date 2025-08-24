@@ -16,29 +16,12 @@ with DAG('demo',
 
     seed_kafka = BashOperator(
         task_id='seed_kafka',
-        bash_command='python /opt/scripts/demo/seed_kafka.py',
+        bash_command='python /opt/project/scripts/demo/seed_kafka.py',
     )
 
-    load_delta = SparkSubmitOperator(
+    load_delta = BashOperator(
         task_id='load_delta',
-        application='/opt/scripts/demo/load_delta.py',
-        packages='org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0',
-        conf={
-            "spark.master": SPARK_URL,
-            "spark.submit.deployMode": "client",
-            "spark.driverEnv.PYTHONPATH": "/opt/spark_jobs", 
-            "spark.executorEnv.PYTHONPATH": "/opt/spark_jobs",
-            "spark.executor.memoryOverhead": 1024,
-            "spark.network.timeout": 600,
-            "spark.executor.heartbeatInterval": 60
-        },
-        name="load_delta",
-        driver_memory="2g",
-        executor_memory="2g",
-        env_vars={
-            'PYTHONPATH': '/opt/spark_jobs',
-            'JAVA_HOME': '/usr/lib/jvm/java-17-openjdk-amd64'
-        }
+        bash_command='python /opt/project/scripts/demo/load_delta.py',
     )
 
     seed_kafka >> load_delta # >> start_simulation_code

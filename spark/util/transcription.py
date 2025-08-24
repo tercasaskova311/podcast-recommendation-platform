@@ -1,114 +1,62 @@
 # util/transcription.py
+import os
+import tempfile
+import requests
+from faster_whisper import WhisperModel
+from pydub import AudioSegment
 
-import json
-import io
-from datetime import datetime
-from pyspark.sql import Row
-from pyspark.sql.types import (
-    StructType, StructField, StringType, LongType, BooleanType, TimestampType
-)
-from pyspark.sql import Row
+# ====== CONFIG ======
+MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny.en")
+DEVICE = "cuda" if os.getenv("USE_CUDA", "0") == "1" else "cpu"
+COMPUTE_TYPE = "int8"
 
-# --- define the output schema used by _process_rows ---
-OUTPUT_SCHEMA = StructType([
-    StructField("episode_id",   LongType(),    True),
-    StructField("title",        StringType(),  True),
-    StructField("audio_url",    StringType(),  True),
-    StructField("transcript",   StringType(),  True),
-    StructField("analyzed",     BooleanType(), True),
-    StructField("failed",       BooleanType(), True),
-    StructField("ts",           TimestampType(), True),
-])
+# Load model once globally (not inside loop!)
+_model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 
-# NOTE: DO NOT import faster_whisper or util.audio at module top-level.
-# They will be imported lazily inside executor functions.
+def _download_audio(audio_url: str, target_path: str):
+    resp = requests.get(audio_url, stream=True, timeout=60)
+    resp.raise_for_status()
+    with open(target_path, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
 
-_MODEL = None
+def _transcribe(audio_path: str):
+    # Ensure it's wav (faster-whisper works better with wav/16k)
+    wav_path = audio_path
+    if not audio_path.endswith(".wav"):
+        sound = AudioSegment.from_file(audio_path)
+        wav_path = audio_path + ".wav"
+        sound.export(wav_path, format="wav")
 
-def _get_model():
-    """Executor-side singleton for WhisperModel."""
-    global _MODEL
-    if _MODEL is None:
-        # Lazy import here so the driver doesn't need faster_whisper installed
-        from faster_whisper import WhisperModel
-        _MODEL = WhisperModel("tiny.en", device="cpu", compute_type="int8")
-    return _MODEL
+    segments, info = _model.transcribe(wav_path)
+    transcript = " ".join([seg.text for seg in segments])
+    return transcript, info
 
-def generate_transcript(wav_segment, chunk_ms=6 * 60 * 1000):
-    try:
-        import io
-        model = _get_model()
-        # Export chunks to in-memory WAV and transcribe
-        chunks = [wav_segment[i:i+chunk_ms] for i in range(0, len(wav_segment), chunk_ms)]
-        segments = []
-        for chunk in chunks:
-            buf = io.BytesIO()
-            chunk.export(buf, format="wav")  # uses pydub on executor
-            buf.seek(0)
-            s, _ = model.transcribe(buf, beam_size=1)
-            segments.extend(s)
-        return " ".join(seg.text for seg in segments)
-    except Exception as e:
-        print(f"Transcription error: {e}")
-        return None
-
-def _process_rows(iter_rows):
-    # lazy import executor-only stuff
-    from util.audio import stream_download, convert_to_wav
-
-    for row in iter_rows:
+def process_batch(episodes):
+    """
+    Args:
+        episodes: list of dicts with at least {"episode_id", "audio_url"}
+    Yields:
+        dict with transcript info for each episode
+    """
+    for ep in episodes:
         try:
-            data = json.loads(row.json_str)
-            episode_id = row.episode_id
-            url = data.get("audio_url", "")
-
-            audio_buf = stream_download(url)
-            if not audio_buf:
-                print(f"[EXECUTOR] Download failed for episode {episode_id} url={url}")
-                continue
-
-            wav = convert_to_wav(audio_buf)
-            if not wav:
-                print(f"[EXECUTOR] Conversion failed for episode {episode_id}")
-                continue
-
-            transcript = generate_transcript(wav)
-            failed = transcript is None
-
-            yield Row(
-                episode_id=episode_id,
-                title=data.get("title", ""),
-                audio_url=url,
-                transcript=transcript,
-                analyzed=False,
-                failed=failed,
-                ts=datetime.utcnow()
-            )
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                _download_audio(ep["audio_url"], tmp.name)
+                transcript, info = _transcribe(tmp.name)
+            yield {
+                "episode_id": ep["episode_id"],
+                "transcript": transcript,
+                "language": info.language,
+                "duration": info.duration,
+                "failed": False,
+            }
         except Exception as e:
-            print(f"[EXECUTOR] Error processing episode {getattr(row,'episode_id',None)}: {e}")
-            # skip row
-
-
-def process_batch(df):
-    """
-    Map each input row to a transcript row. Always return a DF with OUTPUT_SCHEMA,
-    even when the RDD is empty.
-    """
-    required = {"episode_id", "json_str"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"process_batch missing required columns: {sorted(missing)}; got {df.columns}")
-    
-    # keep imports lazy so the driver doesn’t need ML deps
-    rdd = (df.select("episode_id", "json_str")
-             .rdd
-             .mapPartitions(_process_rows))
-
-    spark = df.sql_ctx.sparkSession
-    if rdd.isEmpty():
-        # Safe empty DF
-        empty_rdd = spark.sparkContext.emptyRDD()
-        return spark.createDataFrame(empty_rdd, schema=OUTPUT_SCHEMA)
-
-    # Non-empty: create with explicit schema anyway (more robust)
-    return spark.createDataFrame(rdd, schema=OUTPUT_SCHEMA)
+            yield {
+                "episode_id": ep.get("episode_id"),
+                "transcript": None,
+                "language": None,
+                "duration": None,
+                "failed": True,
+                "error": str(e),
+            }

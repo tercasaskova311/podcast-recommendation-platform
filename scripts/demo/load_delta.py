@@ -2,125 +2,124 @@
 # -*- coding: utf-8 -*-
 
 import os
-from pyspark.sql import functions as F
-from pyspark.sql import SparkSession
+import re
+import json
+import pathlib
+from datetime import datetime, timezone
+from typing import List, Dict, Any
 
-# ---- Local Spark builder (Delta-enabled) ----
-def get_spark(app_name: str = "load-delta-demo"):
-    """
-    Start a local SparkSession with Delta Lake.
-    Adjust DELTA_PKG if your Spark version differs.
-    - Spark 3.4/3.5 + Scala 2.12 → io.delta:delta-spark_2.12:3.2.0 is fine.
-    """
-    delta_pkg = os.getenv("DELTA_PKG", "io.delta:delta-spark_2.12:3.2.0")
+import pandas as pd
+import pyarrow as pa
+from util.delta_io import write_delta_overwrite
+from config.settings import SAMPLE_EPISODES_JSON_PATH, DELTA_PATH_EPISODES, DELTA_PATH_TRANSCRIPTS
 
-    spark = (
-        SparkSession.builder
-        .appName(app_name)
-        .master(os.getenv("SPARK_MASTER", "local[*]"))
-        .config("spark.jars.packages", delta_pkg)
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        .config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "4"))
-        .getOrCreate()
-    )
-    spark.sparkContext.setLogLevel(os.getenv("SPARK_LOG_LEVEL", "WARN"))
-    return spark
 
-# ---- IO paths from env ----
-KAFKA_URL = os.getenv("KAFKA_URL")  # unused here; kept for parity
-TOPIC_EPISODES_ID = os.getenv("TOPIC_EPISODES_ID")
-TOPIC_EPISODE_METADATA = os.getenv("TOPIC_EPISODE_METADATA")
+def _read_json_records(path: str) -> List[Dict[str, Any]]:
+    p = pathlib.Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"JSON file not found: {p}")
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            obj = json.load(f)
+        if isinstance(obj, list):
+            return [x for x in obj if isinstance(x, dict)]
+        if isinstance(obj, dict):
+            return [obj]
+    except json.JSONDecodeError:
+        records = []
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if isinstance(rec, dict):
+                    records.append(rec)
+        if records:
+            return records
+    raise ValueError("Invalid JSON format (expected array, object, or NDJSON)")
 
-SAMPLE_EPISODES_JSON_PATH = os.getenv("SAMPLE_EPISODES_JSON_PATH")
-DELTA_PATH_EPISODES      = os.getenv("DELTA_PATH_EPISODES")
-DELTA_PATH_TRANSCRIPTS   = os.getenv("DELTA_PATH_TRANSCRIPTS")
+def _derive_podcast_url(audio_url: str) -> str:
+    if not audio_url or not isinstance(audio_url, str):
+        return None
+    m = re.match(r"^(https?://[^/]+)", audio_url.strip())
+    return m.group(1) if m else None
 
-def read_sample_json(spark, path):
-    if not path:
-        raise ValueError("SAMPLE_EPISODES_JSON_PATH is not set.")
-    df = (
-        spark.read
-        .option("multiLine", "true")
-        .option("mode", "PERMISSIVE")
-        .json(path)
-    )
-    # If the file is a top-level array, Spark returns a single column "value"
-    if df.columns == ["value"] and df.schema["value"].dataType.typeName() == "array":
-        df = df.select(F.explode("value").alias("row")).select("row.*")
-    if set(df.columns) == {"_corrupt_record"}:
-        bad = spark.read.text(path).limit(5)
-        print("⚠️ Parsed only _corrupt_record. First lines:")
-        bad.show(truncate=False)
-        raise ValueError("Input is not valid JSON for Spark.")
-    return df
+# NOTE: we use int64 epoch millis for ts_ms to avoid Delta “TimestampWithoutTimezone” feature
+ARROW_SCHEMA_EPISODES = pa.schema([
+    pa.field("podcast_title",   pa.string()),
+    pa.field("podcast_author",  pa.string()),
+    pa.field("podcast_url",     pa.string()),
+    pa.field("episode_title",   pa.string()),
+    pa.field("description",     pa.string()),
+    pa.field("audio_url",       pa.string()),
+    pa.field("episode_id",      pa.int64()),
+    pa.field("analyzed",        pa.bool_()),
+    pa.field("failed",          pa.bool_()),
+    pa.field("ts_ms",           pa.int64()),
+])
+
+ARROW_SCHEMA_TRANSCRIPTS = pa.schema([
+    pa.field("episode_id",      pa.int64()),
+    pa.field("transcript",      pa.string()),
+])
+
+def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame):
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+    rows_meta, rows_tr = [], []
+    for r in records:
+        episode_id = r.get("episode_id")
+        if episode_id is None:
+            continue
+
+        description = r.get("description") or r.get("podcast_description")
+        transcript  = r.get("transcript")  or r.get("text")
+
+        rows_meta.append({
+            "podcast_title":  r.get("podcast_title"),
+            "podcast_author": r.get("podcast_author"),
+            "podcast_url":    _derive_podcast_url(r.get("audio_url")),
+            "episode_title":  r.get("episode_title"),
+            "description":    description,
+            "audio_url":      r.get("audio_url"),
+            "episode_id":     int(episode_id),
+            "analyzed":       False,
+            "failed":         False,
+            "ts_ms":          now_ms,
+        })
+        rows_tr.append({
+            "episode_id": int(episode_id),
+            "transcript": transcript,
+        })
+
+    meta_df = pd.DataFrame(rows_meta, columns=[f.name for f in ARROW_SCHEMA_EPISODES])
+    tr_df   = pd.DataFrame(rows_tr,   columns=[f.name for f in ARROW_SCHEMA_TRANSCRIPTS])
+
+    if not meta_df.empty:
+        meta_df["episode_id"] = meta_df["episode_id"].astype("int64")
+        meta_df["analyzed"]   = meta_df["analyzed"].astype("bool")
+        meta_df["failed"]     = meta_df["failed"].astype("bool")
+        meta_df["ts_ms"]      = meta_df["ts_ms"].astype("int64")
+
+    if not tr_df.empty:
+        tr_df["episode_id"] = tr_df["episode_id"].astype("int64")
+
+    return meta_df, tr_df
 
 def main():
-    spark = get_spark()
-    df = read_sample_json(spark, SAMPLE_EPISODES_JSON_PATH)
-
-    print("=== new_eps_df ===")
-    df.show(5, truncate=False)
-    df.printSchema()
-
-    # pick description column safely
-    if "description" in df.columns:
-        desc_col = F.col("description")
-    elif "podcast_description" in df.columns:
-        desc_col = F.col("podcast_description")
-    else:
-        desc_col = F.lit(None).alias("description")
-
-    # derive podcast_url if available
-    podcast_url = F.when(
-        F.col("audio_url").isNotNull(),
-        F.regexp_extract(F.col("audio_url"), r"^(https?://[^/]+)", 1)
-    ).otherwise(F.lit(None))
-
-    metadata = (
-        df.select(
-            F.col("podcast_title"),
-            F.col("podcast_author"),
-            podcast_url.alias("podcast_url"),
-            F.col("episode_title"),
-            desc_col.alias("description"),
-            F.col("audio_url"),
-            F.col("episode_id").cast("long")
-        )
-        .withColumn("analyzed", F.lit(False))
-        .withColumn("failed",   F.lit(False))
-        .withColumn("ts",       F.current_timestamp())
-        .coalesce(1)
-    )
-
-    transcripts = (
-        df.select(
-            F.col("episode_id").cast("long"),
-            (F.col("transcript") if "transcript" in df.columns else F.col("text")).alias("transcript")
-        ).coalesce(1)
-    )
-
-    # Sanity: output envs present
-    for var in ("DELTA_PATH_EPISODES", "DELTA_PATH_TRANSCRIPTS"):
+    for var in ("SAMPLE_EPISODES_JSON_PATH", "DELTA_PATH_EPISODES", "DELTA_PATH_TRANSCRIPTS"):
         if not globals()[var]:
             raise ValueError(f"{var} is not set.")
 
-    (metadata.write
-        .format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-        .save(DELTA_PATH_EPISODES))
+    records = _read_json_records(SAMPLE_EPISODES_JSON_PATH)
+    meta_df, tr_df = _build_frames(records)
 
-    (transcripts.write
-        .format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-        .save(DELTA_PATH_TRANSCRIPTS))
+    n_meta = write_delta_overwrite(DELTA_PATH_EPISODES, meta_df, ARROW_SCHEMA_EPISODES)
+    n_tr   = write_delta_overwrite(DELTA_PATH_TRANSCRIPTS, tr_df, ARROW_SCHEMA_TRANSCRIPTS)
 
-    print(f"Wrote {metadata.count()} rows to Delta\n"
-          f"  metadata   → {DELTA_PATH_EPISODES}\n"
-          f"  transcripts→ {DELTA_PATH_TRANSCRIPTS}")
-    spark.stop()
+    print(f"Wrote {n_meta} rows → {DELTA_PATH_EPISODES}")
+    print(f"Wrote {n_tr} rows → {DELTA_PATH_TRANSCRIPTS}")
 
 if __name__ == "__main__":
     main()

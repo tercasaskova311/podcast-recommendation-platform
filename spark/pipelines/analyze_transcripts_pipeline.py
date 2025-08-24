@@ -39,7 +39,7 @@ def get_spark(app_name="podcast-recs"):
 
 
 # ---------------- Paths & Config ----------------
-BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 
 INPUT_DELTA_LAKE        = os.getenv("INPUT_DELTA_LAKE",        f"file://{BASE}/data/transcripts_demo")
 VECTORS_DELTA_LAKE      = os.getenv("VECTORS_DELTA_LAKE",      f"file://{BASE}/data/delta/episode_vectors")
