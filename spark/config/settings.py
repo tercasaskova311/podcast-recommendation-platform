@@ -8,10 +8,6 @@ DELTA_PATH_TRANSCRIPTS = os.getenv("DELTA_PATH_TRANSCRIPTS")
 
 DELTA_PATH_VECTORS = os.getenv("DELTA_PATH_VECTORS")
 DELTA_PATH_SIMILARITIES = os.getenv("DELTA_PATH_SIMILARITIES")
-SAMPLE_EPISODES_JSON_PATH = os.getenv(
-    "SAMPLE_EPISODES_JSON_PATH",
-    os.path.join(os.getcwd(), "data", "sample_episodes.json")
-)
 
 # Model + embedding config
 MODEL_NAME = os.getenv("MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")

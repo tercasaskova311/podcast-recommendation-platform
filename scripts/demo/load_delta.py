@@ -2,21 +2,20 @@
 from pyspark.sql import functions as F
 from spark.util.common import get_spark
 from spark.config.settings import (
-    SAMPLE_EPISODES_JSON_PATH,
     DELTA_PATH_EPISODES,
     DELTA_PATH_TRANSCRIPTS,
 )
 
 def read_sample_json(spark, path: str):
     if not path:
-        raise ValueError("SAMPLE_EPISODES_JSON_PATH is not set.")
+        raise ValueError
     df = (
         spark.read
         .option("multiLine", "true")
         .option("mode", "PERMISSIVE")
         .json(path)
     )
-    # If the file is a top-level array, Spark returns a single column "value"
+
     if df.columns == ["value"] and df.schema["value"].dataType.typeName() == "array":
         df = df.select(F.explode("value").alias("row")).select("row.*")
     if set(df.columns) == {"_corrupt_record"}:
@@ -52,11 +51,11 @@ def main():
 
     metadata = (
         df.select(
-            F.col("podcast_title"),
+            F.col("podcast"),
             F.col("podcast_author"),
-            podcast_url.alias("podcast_url"),
             F.col("episode_title"),
-            desc_col.alias("description"),
+            desc_col.alias("podcast_description"),
+            F.col("created_at"),
             F.col("audio_url"),
             F.col("episode_id").cast("long"),
         )
