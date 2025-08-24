@@ -12,9 +12,9 @@ with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
 with DAG(
-    dag_id='analyze_transctips',
+    dag_id='analyze_transcripts',
     start_date = datetime(2025, 6, 9),
-    schedule_interval=config['analyze_transctips'],
+    schedule_interval=config['analyze_transcripts'],
     catchup=False,
     tags=['batch'],
 ) as dag:

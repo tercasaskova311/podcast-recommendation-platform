@@ -224,3 +224,30 @@ podcasts> db.similarities.aggregate([
     ]
   },
   ```
+
+
+  Delta: transcripts                           Embedding step                         Delta: vectors
+───────────────────────────┐                ┌──────────────────────────────┐        ┌─────────────────────────────────────────────┐
+episode_id (id) ───────────┼──────────────► │ carried over                 │ ─────► │ episode_id (id)                            │
+transcript (text) ─────────┼─ tokenize ──► │ embed_long_document(text)    │ ─────► │ embedding : array<float>  (NEW)            │
+date (opt) ────────────────┼──────────────► │ carried over (as string)     │ ─────► │ date : string (optional)                   │
+analyzed (bool?) ──────────┤                │ —                            │        │ model : string (e.g. all-MiniLM-L6-v2)     │
+analyzed_at (string?) ─────┘                │ —                            │        │ created_at : timestamp (NEW)               │
+                                           └──────────────────────────────┘        └─────────────────────────────────────────────┘
+                                                                                                    │
+                                                                                                    │  (read history vectors)
+                                                                                                    ▼
+                                                                              KNN over vectors (new vs. history)
+                                                                              ┌────────────────────────────────────────────┐
+                                                                              │ new_episode_id : string      (from new)   │
+                                                                              │ historical_episode_id : str  (from hist)  │
+                                                                              │ similarity OR distance_embed (NEW)        │
+                                                                              │ rank : int (1..k)            (RECOMMEND)  │
+                                                                              │ k : int (TOP_K)                           │
+                                                                              │ model : string (from vectors)             │
+                                                                              │ created_at : timestamp        (NEW)       │
+                                                                              └────────────────────────────────────────────┘
+                                                                                           │
+                                    (primary path)                                         │ (fallback if Mongo down)
+                                    ▼                                                      ▼
+                        MongoDB: similarities (append)                             Delta: similarities (append/merge)
