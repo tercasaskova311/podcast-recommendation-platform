@@ -180,12 +180,7 @@ def run_pipeline() -> None:
     tok_ceiling = getattr(model.tokenizer, "model_max_length", MAX_TOKENS) or MAX_TOKENS
     model.max_seq_length = min(MAX_TOKENS, tok_ceiling)
 
-    log(
-        f"Model={MODEL_NAME} | device={DEVICE} | "
-        f"max_seq_length={model.max_seq_length} | "
-        f"MAX_TOKENS={MAX_TOKENS} | OVERLAP={OVERLAP} | "
-        f"SAFETY_MARGIN={SAFETY_MARGIN} | BATCH_SIZE={BATCH_SIZE}"
-    )
+    
 
     # Embed each transcript
     embedding_dim = model.get_sentence_embedding_dimension()
@@ -228,43 +223,41 @@ def run_pipeline() -> None:
     embedding_dim = model.get_sentence_embedding_dimension()
     pairs_df, used_within = compute_topk_pairs(spark, new_vec_df, hist_df, embedding_dim)
 
-# 6) Format similarities output
+    # 6) Format similarities output  (content-only)
     out_df = (
         pairs_df
         .filter(col("new_episode_id") != col("historical_episode_id"))
         .withColumn("model", lit(MODEL_NAME))
-        .withColumn("created_at", lit(today))
-        .dropDuplicates(["new_episode_id", "historical_episode_id"])
-    )
+    # store embed-sim clearly named; keep distance for back-compat if you like
+        .withColumnRenamed("distance", "distance_embed")
+        .withColumn("created_at", F.current_timestamp())  # BSON Date (enable TTL later)
+    # avoid cross-model collapse; include model in the dedupe key
+        .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
+        )
 
-# 6a) Write to MongoDB (primary), fallback to Delta
+# 6a) Write to MongoDB (append-only, time-series policy)
     wrote_sims = False
     try:
-        (
-            out_df.write
-            .format("mongodb")
-            .mode("append")
-            .option("uri", MONGO_URI)
-            .option("database", MONGO_DB)
-            .option("collection", MONGO_COLLECTION)
-            .save()
-        )
+        (out_df.write
+        .format("mongodb")
+         .mode("append")
+        .option("uri", MONGO_URI)
+        .option("database", MONGO_DB)
+        .option("collection", MONGO_COLLECTION)
+        .save())
         wrote_sims = True
-        log("Wrote similarities to MongoDB.")
     except Exception as e:
         log(f"[WARN] Mongo write failed ({e}) — falling back to Delta.")
         try:
-            (
-                out_df.write
-                .format("delta")
-                .mode("append")
-                .option("mergeSchema", "true")
-                .save(DELTA_PATH_SIMILARITIES)
-            )
+            (out_df.write
+            .format("delta")
+            .mode("append")
+            .option("mergeSchema", "true")
+            .save(DELTA_PATH_SIMILARITIES))
             wrote_sims = True
-            log("Wrote similarities to Delta fallback.")
         except Exception as e2:
             log(f"[ERROR] Delta fallback also failed: {e2}")
+
 
 # 7) Store new embeddings to Delta
     new_vec_df.write.format("delta").mode("append").option("mergeSchema", "true").save(DELTA_PATH_VECTORS)
