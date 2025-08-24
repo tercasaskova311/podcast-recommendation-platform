@@ -42,7 +42,7 @@ def upsert_analyzed_true(spark: SparkSession, table_path: str, ids: Sequence[str
     updates = (spark.createDataFrame([(str(i),) for i in ids], "episode_id_str string")
                      .select(col("episode_id_str").cast(dtype).alias("episode_id"),
                              lit(True).alias("analyzed"),
-                             lit(datetime.datetime.utcnow().isoformat()).alias("analyzed_at")))
+                             F.current_timestamp().alias("analyzed_at")))
     (tgt.alias("t")
         .merge(updates.alias("u"), "t.episode_id = u.episode_id")
         .whenMatchedUpdate(set={"analyzed": "u.analyzed", "analyzed_at": "u.analyzed_at"})
@@ -224,10 +224,12 @@ def run_pipeline() -> None:
         pairs_df
         .filter(col("new_episode_id") != col("historical_episode_id"))
         .withColumn("model", lit(MODEL_NAME))
-        .withColumnRenamed("distance", "similarity")
-        .withColumn("created_at", F.to_utc_timestamp(F.current_timestamp(), "UTC"))
+        .withColumnRenamed("distance", "distance_embed")
+        .withColumn("similarity", 1.0 - F.col("distance_embed"))
+        .withColumn("created_at", F.current_timestamp())  # TIMESTAMP
         .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
-        )
+    )
+
 
 # 6a) Write to MongoDB (append-only, time-series policy)
     wrote_sims = False
