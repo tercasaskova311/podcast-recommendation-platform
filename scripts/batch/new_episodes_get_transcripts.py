@@ -243,42 +243,8 @@ def load_retry_queue() -> List[Dict[str, Any]]:
 def run_pipeline():
     start = time.time()
 
-    # 1) Read bounded batch
-    consumer, records = read_episode_metadata_batch(
-        kafka_url=KAFKA_URL,
-        topic=TOPIC_EPISODE_METADATA,
-        group_id=CONSUMER_GROUP,
-        max_records=MAX_RECORDS,
-        poll_timeout_ms=POLL_TIMEOUT_MS,
-    )
-    if not records:
-        print("No episode metadata polled from Kafka.")
-        consumer.close()
-        return
 
-    # Parse records, track offsets per episode
-    parsed_rows: List[Dict[str, Any]] = []
-    ep_offsets: Dict[str, Tuple[TopicPartition, int]] = {}  # episode_id -> (tp, offset)
-
-    for rec in records:
-        row = parse_episode_record(rec["value"], rec["key"])
-        if row.get("episode_id") and row.get("audio_url"):
-            eid = row["episode_id"]
-            parsed_rows.append(row)
-            # Keep the HIGHEST offset we saw for this episode_id (dedupe within batch)
-            prev = ep_offsets.get(eid)
-            if (prev is None) or (rec["offset"] > prev[1]):
-                ep_offsets[eid] = (rec["tp"], rec["offset"])
-
-    if not parsed_rows:
-        print("No usable rows in batch. Committing polled offsets to advance the group cursor.")
-        commit_all_polled(consumer, records)
-        consumer.close()
-        return
-
-    print(f"Fetched {len(parsed_rows)} episode metadata rows.")
-
-    # 2) Ensure tables and filter NEW vs episodes table
+    # 1) Ensure tables and filter NEW vs episodes table
     ensure_table(
         DELTA_PATH_EPISODES,
         {
@@ -303,24 +269,67 @@ def run_pipeline():
             "language": None,
             "analyzed": False,
             "ingest_ts": None,
-            "retry_count": 0,   # NEW: track retries
+            "retry_count": 0,
         },
     )
 
-    existing_ids = set(str(x) for x in get_existing_ids(DELTA_PATH_EPISODES, EPISODE_KEY))
-    print(f"Existitng: {existing_ids}")
-    print(f"There are {len(existing_ids)} existing episode_ids")
-
-    new_eps = [r for r in parsed_rows if r[EPISODE_KEY] not in existing_ids]
-
-    # Upsert metadata for NEW in one shot (so subsequent retries know the audio_url)
-    if new_eps:
-        upsert_delta(DELTA_PATH_EPISODES, new_eps, key=EPISODE_KEY)
-
-    # 3) Build work list: retries first, then new items
+    # 2) Load failed episodes to try to download them again
     retry_queue = load_retry_queue()
-    print(f"RETRY: {retry_queue}")
+    print(f"There are {retry_queue} failed episoes to retry")
+
+    # 3) Read bounded batch
+    consumer, records = read_episode_metadata_batch(
+        kafka_url=KAFKA_URL,
+        topic=TOPIC_EPISODE_METADATA,
+        group_id=CONSUMER_GROUP,
+        max_records=MAX_RECORDS,
+        poll_timeout_ms=POLL_TIMEOUT_MS,
+    )
+
+    new_eps = []
+
+    if not records and not retry_queue:
+        print("Nothing to process (no retries, no new episodes).")
+        consumer.close()
+        return
+    elif not retry_queue:
+        # Parse records, track offsets per episode
+        parsed_rows: List[Dict[str, Any]] = []
+        ep_offsets: Dict[str, Tuple[TopicPartition, int]] = {}  # episode_id -> (tp, offset)
+        
+        for rec in records:
+            row = parse_episode_record(rec["value"], rec["key"])
+            if row.get("episode_id") and row.get("audio_url"):
+                eid = row["episode_id"]
+                parsed_rows.append(row)
+                # Keep the HIGHEST offset we saw for this episode_id (dedupe within batch)
+                prev = ep_offsets.get(eid)
+                if (prev is None) or (rec["offset"] > prev[1]):
+                    ep_offsets[eid] = (rec["tp"], rec["offset"])
+        
+        #Quit if not usable data
+        if not parsed_rows:
+            print("No usable rows in batch. Committing polled offsets to advance the group cursor.")
+            commit_all_polled(consumer, records)
+            consumer.close()
+            return
+        
+        existing_ids = set(str(x) for x in get_existing_ids(DELTA_PATH_EPISODES, EPISODE_KEY))
+        new_eps = [r for r in parsed_rows if r[EPISODE_KEY] not in existing_ids]
+
+        # Upsert metadata for NEW in one shot (so subsequent retries know the audio_url)
+        if not new_eps:
+            print("Fetched already store episodes. Move on")
+            commit_all_polled(consumer, records)
+            consumer.close()
+            return
+        else:
+            upsert_delta(DELTA_PATH_EPISODES, new_eps, key=EPISODE_KEY)
+
+        print(f"Fetched {len(parsed_rows)} episode, just {len(new_eps)} of them are new.")
+
     
+    # 4) Build work list: retries first, then new items
     seen: Set[str] = set()
     work: List[Dict[str, Any]] = []
     for ep in retry_queue:
@@ -334,13 +343,6 @@ def run_pipeline():
             ep["_prev_retry_count"] = 0
             work.append(ep)
             seen.add(eid)
-
-    if not work:
-        print("Nothing to process (no retries, no new episodes).")
-        # advance offsets for everything we polled
-        commit_all_polled(consumer, records)
-        consumer.close()
-        return
 
     print(f"Episodes to process (retries + new) ({len(retry_queue)} + {len(new_eps)}): {len(work)}")
 
@@ -388,16 +390,10 @@ def run_pipeline():
             "ingest_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "retry_count": min(prev_retry + 1, 3) if result.get("failed") else prev_retry,
         }
-        print(f"Added transcript of episode: {row['episode_id']}")
         print(row)
 
         # Persist immediately
         upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY)
-
-        # If this episode came from the Kafka poll, commit its offset right now
-        if eid in ep_offsets:
-            consumer.poll(0)  # keep membership fresh right before commit
-            commit_offset_for_eid(consumer, eid, ep_offsets)
 
         # Heartbeat to keep group membership
         consumer.poll(0)

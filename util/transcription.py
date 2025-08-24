@@ -7,47 +7,31 @@ import subprocess
 from typing import Dict, Any, List, Iterator
 
 import requests
-from faster_whisper import WhisperModel
-
-
-TRANSCRIBE_BACKEND="vosk"
 
 # -------- Tunables (env) --------
-WHISPER_MODEL   = "tiny.en"
-WHISPER_LOCAL_DIR="/models/faster-whisper-tiny.en"
-WHISPER_DEVICE  = "cpu"     # "cpu" or "cuda"
-WHISPER_COMPUTE = "float32"
-WHISPER_BEAM    = 1
-WHISPER_VAD     = True
-
-MAX_AUDIO_DURATION_SEC = 3600    # skip > 60 min
+MAX_AUDIO_DURATION_SEC = 5400  # skip > 90 min
 DOWNLOAD_TIMEOUT_SEC   = 180
-DOWNLOAD_CHUNK_BYTES   = 65536  # 64 KiB
+DOWNLOAD_CHUNK_BYTES   = (64 * 1024)  # 64 KiB
 
-# Use a dedicated download root to avoid reusing a bad cache
-WHISPER_DOWNLOAD_ROOT = "/tmp/whisper_ct2_models"
-
-FFMPEG_PATH = "ffmpeg"
+FFMPEG_PATH  = "ffmpeg"
 FFPROBE_PATH = "ffprobe"
 
 # Keep CPU libs from oversubscribing cores
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-os.environ.setdefault("CT2_USE_EXPERIMENTAL_PACKED_GEMM", "1")
-
-_fw_MODEL = None  # lazy
 
 # ----------------------------
 # Vosk (CPU-friendly)
 # ----------------------------
-VOSK_MODEL_DIR = "/models/vosk-small-en"  # e.g., /models/vosk-small-en
-_vosk_MODEL = None  # lazy
+VOSK_MODEL_DIR = os.getenv("VOSK_MODEL_DIR", "/models/vosk-small-en")  # e.g., /models/vosk-small-en
+_vosk_MODEL = None  # lazy singleton
 
 
 # ===== Common helpers =====
 def _download_to_tmp(url: str) -> str:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp:
+    # Keep original extension unknown; we’ll transcode anyway
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".src") as tmp:
         tmp_path = tmp.name
     with requests.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT_SEC) as r:
         r.raise_for_status()
@@ -65,6 +49,7 @@ def _probe_duration_seconds(path: str) -> float:
         out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         return float(out.decode().strip())
     except Exception:
+        # If probing fails, let it pass through but mark as too long to be safe
         return math.inf
 
 
@@ -75,58 +60,13 @@ def _to_wav_16k_mono(src_path: str) -> str:
     return wav_path
 
 
-# ===== Whisper backend =====
-def _assert_ct2_layout(path: str):
-    need = {"model.bin", "config.json", "tokenizer.json", "vocabulary.txt"}
-    have = set(os.listdir(path))
-    missing = need - have
-    if missing:
-        raise RuntimeError(f"Model at {path} is not a CT2 checkpoint (missing: {sorted(missing)})")
-
-
-def _fw_get_model():
-    global _fw_MODEL
-    if _fw_MODEL is not None:
-        return _fw_MODEL
-
-    from faster_whisper import WhisperModel  # lazy import
-    if WHISPER_LOCAL_DIR:
-        print(f"[transcription] loading LOCAL CT2 model: {WHISPER_LOCAL_DIR}")
-        _assert_ct2_layout(WHISPER_LOCAL_DIR)
-        _fw_MODEL = WhisperModel(WHISPER_LOCAL_DIR, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
-        return _fw_MODEL
-
-    os.makedirs(WHISPER_DL_ROOT, exist_ok=True)
-    print(f"[transcription] loading CT2 model by name: {WHISPER_MODEL} (root={WHISPER_DL_ROOT})")
-    _fw_MODEL = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE,
-                             download_root=WHISPER_DL_ROOT)
-    return _fw_MODEL
-
-
-def _fw_transcribe(wav_path: str) -> Dict[str, Any]:
-    model = _fw_get_model()
-    segments, info = model.transcribe(
-        wav_path,
-        vad_filter=WHISPER_VAD,
-        beam_size=WHISPER_BEAM,
-    )
-    text = " ".join(s.text for s in segments)
-    return {
-        "transcript": text,
-        "language": info.language,
-        "duration": float(info.duration),
-        "failed": False,
-        "error": None,
-    }
-
-
 # ===== Vosk backend =====
 def _vosk_get_model():
     global _vosk_MODEL
     if _vosk_MODEL is not None:
         return _vosk_MODEL
     if not VOSK_MODEL_DIR or not os.path.isdir(VOSK_MODEL_DIR):
-        raise RuntimeError("VOSK_MODEL_DIR is not set or not a directory.")
+        raise RuntimeError(f"VOSK_MODEL_DIR is not set or not a directory: {VOSK_MODEL_DIR}")
     from vosk import Model as VoskModel  # lazy import
     print(f"[transcription] loading Vosk model: {VOSK_MODEL_DIR}")
     _vosk_MODEL = VoskModel(VOSK_MODEL_DIR)
@@ -145,6 +85,7 @@ def _vosk_transcribe(wav_path: str) -> Dict[str, Any]:
         rec = KaldiRecognizer(model, 16000)
         rec.SetWords(True)
         texts: List[str] = []
+        # Read ~0.25s at 16 kHz, 16-bit mono -> 8000 bytes ≈ 4000 frames
         while True:
             data = wf.readframes(4000)
             if len(data) == 0:
@@ -182,12 +123,9 @@ def process_one(episode: Dict[str, Any]) -> Dict[str, Any]:
         dur = _probe_duration_seconds(src)
         if dur > MAX_AUDIO_DURATION_SEC:
             raise RuntimeError(f"audio too long: {dur:.1f}s > {MAX_AUDIO_DURATION_SEC}s")
-        wav = _to_wav_16k_mono(src)
 
-        if TRANSCRIBE_BACKEND == "vosk":
-            tr = _vosk_transcribe(wav)
-        else:
-            tr = _fw_transcribe(wav)
+        wav = _to_wav_16k_mono(src)
+        tr = _vosk_transcribe(wav)
 
         return {
             "episode_id": eid,
