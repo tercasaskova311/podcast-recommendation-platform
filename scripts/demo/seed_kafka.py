@@ -29,11 +29,13 @@ def main():
     for rec in data:
         key = rec.get("episode_id")
         
+        rec_no_transcript = {k: v for k, v in rec.items() if k != "transcript"}
+
         # Send metadata
         producer.send(
             TOPIC_EPISODE_METADATA,
             key=str(key).encode('utf-8') if key else None,
-            value=rec
+            value=rec_no_transcript
         )
 
         # Send ID to tracking topic

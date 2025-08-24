@@ -64,7 +64,7 @@ ARROW_SCHEMA_TRANSCRIPTS = pa.schema([
     pa.field("error",          pa.string()),
     pa.field("duration",          pa.float32()),
     pa.field("analyzed",        pa.bool_()),
-    pa.field("ingest_ts",           pa.int64()),
+    pa.field("ingest_ts",           pa.string()),
     pa.field("retry_count",           pa.int16()),
 ])
 
@@ -97,7 +97,7 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
             "error": None,
             "duration": None,
             "analyzed": False,
-            "ingest_ts": 0,
+            "ingest_ts": None,
             "retry_count": 0
         })
 
@@ -111,7 +111,6 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
         tr_df["episode_id"] = tr_df["episode_id"].astype("int64")
         tr_df["failed"]     = tr_df["failed"].astype("bool")
         tr_df["analyzed"]   = tr_df["analyzed"].astype("bool")
-        tr_df["ingest_ts"]      = tr_df["ingest_ts"].astype("int64")
         tr_df["retry_count"]      = tr_df["retry_count"].astype("int16")
 
     return meta_df, tr_df
