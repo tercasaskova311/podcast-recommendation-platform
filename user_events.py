@@ -76,3 +76,5 @@ for user_number, user_id in enumerate(user_ids):
 with open("user_events_data.json", "w") as output_file:
     json.dump(obj=user_events_data,
               fp=output_file)
+    
+
