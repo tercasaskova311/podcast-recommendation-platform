@@ -25,8 +25,8 @@ from ..config.settings import (
 def log(msg: str, level: str = "INFO") -> None:
     print(f"[{level}] {msg}")
 
+"""Add analyzed/analyzed_at """
 def ensure_transcripts_columns(spark: SparkSession, table_path: str) -> None:
-    """Add analyzed/analyzed_at if missing."""
     df = spark.read.format("delta").load(table_path)
     missing = [c for c in ("analyzed", "analyzed_at") if c not in df.columns]
     if not missing: return
@@ -96,7 +96,6 @@ def compute_topk_pairs(spark: SparkSession, new_vec_df: DataFrame, hist_df: Data
                        model_dim: int) -> Tuple[DataFrame, bool]:
     used_within = False
     if (hist_df.rdd.isEmpty()) and WITHIN_BATCH_IF_EMPTY:
-        log("History empty — using within-batch KNN (self-matches will be filtered).")
         hist_df = new_vec_df.select("episode_id", "embedding"); used_within = True
 
     hist_pd = hist_df.toPandas()
@@ -165,7 +164,6 @@ def run_pipeline() -> None:
     pending = pending.select(*selected_cols)
 
     if pending.rdd.isEmpty():
-        log("No transcripts to analyze. (Either none exist, or all are already analyzed.)", level="INFO")
         spark.stop()
         return
 
@@ -179,8 +177,6 @@ def run_pipeline() -> None:
     model = SentenceTransformer(MODEL_NAME, device=DEVICE)
     tok_ceiling = getattr(model.tokenizer, "model_max_length", MAX_TOKENS) or MAX_TOKENS
     model.max_seq_length = min(MAX_TOKENS, tok_ceiling)
-
-    
 
     # Embed each transcript
     embedding_dim = model.get_sentence_embedding_dimension()
@@ -228,10 +224,8 @@ def run_pipeline() -> None:
         pairs_df
         .filter(col("new_episode_id") != col("historical_episode_id"))
         .withColumn("model", lit(MODEL_NAME))
-    # store embed-sim clearly named; keep distance for back-compat if you like
         .withColumnRenamed("distance", "distance_embed")
         .withColumn("created_at", F.to_utc_timestamp(F.current_timestamp(), "UTC"))
-    # avoid cross-model collapse; include model in the dedupe key
         .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
         )
 
@@ -240,7 +234,7 @@ def run_pipeline() -> None:
     try:
         (out_df.write
         .format("mongodb")
-         .mode("append")
+        .mode("append")
         .option("uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION)
