@@ -1,25 +1,21 @@
 # scripts/batch/new_episodes_transcript_download.py
 """
 Batch pipeline (NO SPARK):
-1) Read episode metadata from Kafka (bounded batch)
-2) Parse & keep only NEW episodes vs Delta `episodes` table
-3) Download + transcribe one episode at a time (via util.transcription.process_batch([ep]))
-4) Upsert episodes & transcripts to Delta (delta-rs) idempotently by episode_id
-5) Commit Kafka offset for that episode immediately after successful persistence
-6) Also retry previously failed transcripts (retry_count < 3) before new items
+- Load retryable failed transcripts first (retry_count < 3)
+- Poll Kafka for episode metadata (bounded batch)
+- Upsert NEW metadata to Delta so retries can find audio_url next runs
+- Process ONE episode at a time: transcribe -> upsert transcript -> commit Kafka offset for that eid
 """
 
 import os
 import json
 import time
-from typing import Any, Dict, List, Tuple, Optional, Set
+from typing import Any, Dict, List, Tuple, Set
 from collections import defaultdict
 
 from kafka import KafkaConsumer
 from kafka.errors import CommitFailedError, RebalanceInProgressError
 from kafka.structs import TopicPartition, OffsetAndMetadata
-
-# NEW: read Delta to assemble retry queue
 from deltalake import DeltaTable
 
 from util.delta_io import ensure_table, upsert_delta, get_existing_ids
@@ -34,16 +30,17 @@ from config.settings import (
 )
 
 # ---- Tunables via ENV ----
-MAX_RECORDS = int(os.getenv("MAX_RECORDS", "20"))
-POLL_TIMEOUT_MS = int(os.getenv("POLL_TIMEOUT_MS", "5000"))
+MAX_RECORDS = 5
+POLL_TIMEOUT_MS = 5000
+FAILED_EPISODES_MAX_RETRY = 5 #Reprocess max. 5 episodes at each run
+
+# Kafka liveness (long transcription protection)
+KAFKA_MAX_POLL_INTERVAL_MS=1800000 #30 min
+KAFKA_SESSION_TIMEOUT_MS=45000
+KAFKA_HEARTBEAT_INTERVAL_MS=3000
 
 CONSUMER_GROUP = "episode-download-batch"
 EPISODE_KEY = "episode_id"
-
-# Kafka liveness (long transcription protection)
-KAFKA_MAX_POLL_INTERVAL_MS = int(os.getenv("KAFKA_MAX_POLL_INTERVAL_MS", "1800000"))  # 30m
-KAFKA_SESSION_TIMEOUT_MS   = int(os.getenv("KAFKA_SESSION_TIMEOUT_MS", "45000"))      # 45s
-KAFKA_HEARTBEAT_INTERVAL_MS= int(os.getenv("KAFKA_HEARTBEAT_INTERVAL_MS", "3000"))    # 3s
 
 
 # =========================
@@ -70,7 +67,6 @@ def parse_episode_record(value: Any, key_bytes: bytes) -> Dict[str, Any]:
     else:
         payload = {}
 
-    # episode_id: prefer payload; fallback to Kafka key
     episode_id = payload.get(EPISODE_KEY)
     if episode_id is None and key_bytes is not None:
         try:
@@ -78,11 +74,8 @@ def parse_episode_record(value: Any, key_bytes: bytes) -> Dict[str, Any]:
         except Exception:
             episode_id = None
 
-    # Normalize to string
-    eid_str = str(episode_id) if episode_id is not None else None
-
     return {
-        "episode_id": eid_str,
+        "episode_id": str(episode_id) if episode_id is not None else None,
         "podcast_title": payload.get("podcast_title"),
         "podcast_author": payload.get("podcast_author"),
         "podcast_url": payload.get("podcast_url"),
@@ -113,7 +106,6 @@ def read_episode_metadata_batch(
         key_deserializer=lambda k: k,
         auto_offset_reset="earliest",
         max_poll_records=max_records,
-        # keep membership during long processing:
         max_poll_interval_ms=KAFKA_MAX_POLL_INTERVAL_MS,
         session_timeout_ms=KAFKA_SESSION_TIMEOUT_MS,
         heartbeat_interval_ms=KAFKA_HEARTBEAT_INTERVAL_MS,
@@ -124,6 +116,15 @@ def read_episode_metadata_batch(
         for r in recs:
             records.append({"value": r.value, "key": r.key, "tp": tp, "offset": r.offset})
     return consumer, records
+
+def highest_offsets_from(records):
+    highest = {}
+    for rec in records:
+        tp = rec["tp"]
+        off = rec["offset"]
+        if tp not in highest or off > highest[tp]:
+            highest[tp] = off
+    return highest
 
 def commit_offsets_map(consumer: KafkaConsumer, tp_to_offset_inclusive: Dict[TopicPartition, int]) -> None:
     if not tp_to_offset_inclusive:
@@ -142,23 +143,13 @@ def commit_offsets_map(consumer: KafkaConsumer, tp_to_offset_inclusive: Dict[Top
         consumer.poll(0)  # send heartbeat / rejoin if needed
         consumer.commit(commit_payload)
 
-def commit_all_polled(consumer: KafkaConsumer, records: List[Dict[str, Any]]) -> None:
-    """
-    When we decide to skip processing (e.g., no new episodes), advance the group
-    cursor past everything we just polled so we don't see it again next run.
-    """
-    highest: Dict[TopicPartition, int] = {}
-    for rec in records:
-        tp = rec["tp"]
-        off = rec["offset"]
-        if tp not in highest or off > highest[tp]:
-            highest[tp] = off
-    commit_offsets_map(consumer, highest)
-
-def commit_offset_for_eid(consumer, eid, ep_offsets, max_retries: int = 5, backoff_sec: float = 0.5):
-    """
-    Commit the offset for a specific episode_id that we just persisted.
-    """
+def commit_offset_for_eid(
+    consumer: KafkaConsumer,
+    eid: str,
+    ep_offsets: Dict[str, Tuple[TopicPartition, int]],
+    max_retries: int = 5,
+    backoff_sec: float = 0.5,
+):
     tp_off = ep_offsets.get(eid)
     if not tp_off:
         return
@@ -172,9 +163,8 @@ def commit_offset_for_eid(consumer, eid, ep_offsets, max_retries: int = 5, backo
         except (CommitFailedError, RebalanceInProgressError):
             attempt += 1
             if attempt > max_retries:
-                # We've already persisted to Delta idempotently; worst case we'll re-read and short-circuit next run
+                # We already persisted to Delta idempotently; worst case we re-read and short-circuit next run.
                 raise
-            # Rejoin/heartbeat and back off briefly
             consumer.poll(0)
             time.sleep(backoff_sec * attempt)
 
@@ -200,10 +190,7 @@ def load_retry_queue() -> List[Dict[str, Any]]:
         return []
 
     tdf = safe_read_df(DELTA_PATH_TRANSCRIPTS)
-    if tdf.empty:
-        return []
-
-    if "failed" not in tdf.columns:
+    if tdf.empty or "failed" not in tdf.columns:
         return []
     if "retry_count" not in tdf.columns:
         tdf["retry_count"] = 0
@@ -243,8 +230,7 @@ def load_retry_queue() -> List[Dict[str, Any]]:
 def run_pipeline():
     start = time.time()
 
-
-    # 1) Ensure tables and filter NEW vs episodes table
+    # Ensure tables exist
     ensure_table(
         DELTA_PATH_EPISODES,
         {
@@ -273,11 +259,11 @@ def run_pipeline():
         },
     )
 
-    # 2) Load failed episodes to try to download them again
+    # 1) Load retries first
     retry_queue = load_retry_queue()
-    print(f"There are {retry_queue} failed episoes to retry")
+    print(f"Retryable failed episodes: {len(retry_queue)}")
 
-    # 3) Read bounded batch
+    # 2) Poll Kafka ALWAYS (even if there are retries) so we can also process new ones
     consumer, records = read_episode_metadata_batch(
         kafka_url=KAFKA_URL,
         topic=TOPIC_EPISODE_METADATA,
@@ -286,73 +272,66 @@ def run_pipeline():
         poll_timeout_ms=POLL_TIMEOUT_MS,
     )
 
-    new_eps = []
+    # build once for this poll
+    polled_highest = highest_offsets_from(records)
 
-    if not records and not retry_queue:
-        print("Nothing to process (no retries, no new episodes).")
-        consumer.close()
-        return
-    elif not retry_queue:
-        # Parse records, track offsets per episode
-        parsed_rows: List[Dict[str, Any]] = []
-        ep_offsets: Dict[str, Tuple[TopicPartition, int]] = {}  # episode_id -> (tp, offset)
-        
-        for rec in records:
-            row = parse_episode_record(rec["value"], rec["key"])
-            if row.get("episode_id") and row.get("audio_url"):
-                eid = row["episode_id"]
-                parsed_rows.append(row)
-                # Keep the HIGHEST offset we saw for this episode_id (dedupe within batch)
-                prev = ep_offsets.get(eid)
-                if (prev is None) or (rec["offset"] > prev[1]):
-                    ep_offsets[eid] = (rec["tp"], rec["offset"])
-        
-        #Quit if not usable data
-        if not parsed_rows:
-            print("No usable rows in batch. Committing polled offsets to advance the group cursor.")
-            commit_all_polled(consumer, records)
-            consumer.close()
-            return
-        
+    # Parse all polled records and build ep_offsets
+    parsed_rows: List[Dict[str, Any]] = []
+    ep_offsets: Dict[str, Tuple[TopicPartition, int]] = {}  # episode_id -> (tp, offset)
+
+    for rec in records:
+        row = parse_episode_record(rec["value"], rec["key"])
+        if row.get("episode_id") and row.get("audio_url"):
+            eid = row["episode_id"]
+            parsed_rows.append(row)
+            prev = ep_offsets.get(eid)
+            if (prev is None) or (rec["offset"] > prev[1]):
+                ep_offsets[eid] = (rec["tp"], rec["offset"])
+
+    # 3) New vs existing
+    new_eps: List[Dict[str, Any]] = []
+    if parsed_rows:
         existing_ids = set(str(x) for x in get_existing_ids(DELTA_PATH_EPISODES, EPISODE_KEY))
         new_eps = [r for r in parsed_rows if r[EPISODE_KEY] not in existing_ids]
-
-        # Upsert metadata for NEW in one shot (so subsequent retries know the audio_url)
-        if not new_eps:
-            print("Fetched already store episodes. Move on")
-            commit_all_polled(consumer, records)
-            consumer.close()
-            return
-        else:
+        if new_eps:
             upsert_delta(DELTA_PATH_EPISODES, new_eps, key=EPISODE_KEY)
+    print(f"Fetched data: {parsed_rows}")
+    print(f"Exisisting: {existing_ids}")
+    print(f"Fetched {len(parsed_rows)} episodes, just {len(new_eps)} of them are new")
 
-        print(f"Fetched {len(parsed_rows)} episode, just {len(new_eps)} of them are new.")
+    if (not retry_queue) and (not new_eps):
+        #If there are some messages already present i skip them
+        if(records):
+            commit_offsets_map(consumer, polled_highest)
 
-    
-    # 4) Build work list: retries first, then new items
+        print("Nothing to process (no retries, no new episodes).")
+        # DO NOT blanket-commit all polled offsets here; we didn’t persist anything.
+        consumer.close()
+        return
+
+    print(f"Episodes to process (retries + new) ({len(retry_queue)} + {len(new_eps)}): {len(retry_queue) + len(new_eps)}")
+
+    # 4) Build work list: retries first, then new (dedup by eid)
     seen: Set[str] = set()
     work: List[Dict[str, Any]] = []
-    for ep in retry_queue:
-        eid = ep["episode_id"]
-        if eid not in seen:
-            work.append(ep)
-            seen.add(eid)
     for ep in new_eps:
         eid = ep["episode_id"]
         if eid not in seen:
             ep["_prev_retry_count"] = 0
             work.append(ep)
             seen.add(eid)
+    for ep in retry_queue[:FAILED_EPISODES_MAX_RETRY]:
+        eid = ep["episode_id"]
+        if eid not in seen:
+            work.append(ep)
+            seen.add(eid)
 
-    print(f"Episodes to process (retries + new) ({len(retry_queue)} + {len(new_eps)}): {len(work)}")
-
-    # 4) Process ONE BY ONE: transcribe -> upsert -> commit offset for that eid
+    # 5) Process ONE BY ONE
     for ep in work:
         eid = str(ep["episode_id"])
         prev_retry = int(ep.get("_prev_retry_count") or 0)
 
-        # Call your existing util generator for a single episode
-        # process_batch([ep]) yields exactly one result dict
+        # process_batch([ep]) yields exactly one result
         result = None
         try:
             for res in process_batch([ep]):
@@ -367,7 +346,6 @@ def run_pipeline():
                 "duration": None,
                 "language": None,
             }
-
         if result is None:
             result = {
                 "episode_id": eid,
@@ -378,7 +356,7 @@ def run_pipeline():
                 "language": None,
             }
 
-        # Build transcript row (increment retry_count only on failure, capped at 3)
+        # Build transcript row; increment retry_count only when failed (cap at 3)
         row = {
             "episode_id": eid,
             "transcript": result.get("transcript"),
@@ -395,12 +373,15 @@ def run_pipeline():
         # Persist immediately
         upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY)
 
-        # Heartbeat to keep group membership
-        consumer.poll(0)
-    
-    commit_all_polled(consumer, records)
+        # Commit Kafka offset ONLY if this episode came from Kafka AND we just persisted it
+        if eid in ep_offsets:
+            consumer.poll(0)  # keep membership fresh right before commit
+            commit_offset_for_eid(consumer, eid, ep_offsets)
 
-    # 5) Done
+        # Heartbeat to keep group membership if next episode is slow
+        consumer.poll(0)
+
+    #6) Done
     consumer.close()
     print(f"Pipeline completed in {time.time() - start:.1f}s")
 

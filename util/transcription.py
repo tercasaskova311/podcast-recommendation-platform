@@ -24,7 +24,7 @@ os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 # ----------------------------
 # Vosk (CPU-friendly)
 # ----------------------------
-VOSK_MODEL_DIR = os.getenv("VOSK_MODEL_DIR", "/models/vosk-small-en")  # e.g., /models/vosk-small-en
+VOSK_MODEL_DIR="/models/vosk-small-en"
 _vosk_MODEL = None  # lazy singleton
 
 

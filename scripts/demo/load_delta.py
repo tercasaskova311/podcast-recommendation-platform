@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 
 import pandas as pd
 import pyarrow as pa
-from util.delta_io import write_delta_overwrite
+from util.delta_io import write_delta_overwrite, ensure_table
 from config.settings import SAMPLE_EPISODES_JSON_PATH, DELTA_PATH_EPISODES, DELTA_PATH_TRANSCRIPTS
 
 
@@ -47,25 +47,28 @@ def _derive_podcast_url(audio_url: str) -> str:
 
 # NOTE: we use int64 epoch millis for ts_ms to avoid Delta “TimestampWithoutTimezone” feature
 ARROW_SCHEMA_EPISODES = pa.schema([
+    pa.field("episode_id",      pa.int64()),
     pa.field("podcast_title",   pa.string()),
     pa.field("podcast_author",  pa.string()),
     pa.field("podcast_url",     pa.string()),
     pa.field("episode_title",   pa.string()),
     pa.field("description",     pa.string()),
     pa.field("audio_url",       pa.string()),
-    pa.field("episode_id",      pa.int64()),
-    pa.field("analyzed",        pa.bool_()),
-    pa.field("failed",          pa.bool_()),
-    pa.field("ts_ms",           pa.int64()),
+    pa.field("json_str",        pa.string())
 ])
 
 ARROW_SCHEMA_TRANSCRIPTS = pa.schema([
     pa.field("episode_id",      pa.int64()),
     pa.field("transcript",      pa.string()),
+    pa.field("failed",          pa.bool_()),
+    pa.field("error",          pa.string()),
+    pa.field("duration",          pa.float32()),
+    pa.field("analyzed",        pa.bool_()),
+    pa.field("ingest_ts",           pa.int64()),
+    pa.field("retry_count",           pa.int16()),
 ])
 
 def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame):
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     rows_meta, rows_tr = [], []
     for r in records:
@@ -77,20 +80,25 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
         transcript  = r.get("transcript")  or r.get("text")
 
         rows_meta.append({
-            "podcast_title":  r.get("podcast_title"),
+            "episode_id": int(episode_id),
+            "podcast_title": r.get("podcast_title"),
             "podcast_author": r.get("podcast_author"),
-            "podcast_url":    _derive_podcast_url(r.get("audio_url")),
-            "episode_title":  r.get("episode_title"),
-            "description":    description,
-            "audio_url":      r.get("audio_url"),
-            "episode_id":     int(episode_id),
-            "analyzed":       False,
-            "failed":         False,
-            "ts_ms":          now_ms,
+            "podcast_url": _derive_podcast_url(r.get("audio_url")),
+            "episode_title": r.get("episode_title"),
+            "description": description,
+            "audio_url": r.get("audio_url"),
+            "json_str": None,
         })
+
         rows_tr.append({
             "episode_id": int(episode_id),
             "transcript": transcript,
+            "failed": False,
+            "error": None,
+            "duration": None,
+            "analyzed": False,
+            "ingest_ts": 0,
+            "retry_count": 0
         })
 
     meta_df = pd.DataFrame(rows_meta, columns=[f.name for f in ARROW_SCHEMA_EPISODES])
@@ -98,12 +106,13 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
 
     if not meta_df.empty:
         meta_df["episode_id"] = meta_df["episode_id"].astype("int64")
-        meta_df["analyzed"]   = meta_df["analyzed"].astype("bool")
-        meta_df["failed"]     = meta_df["failed"].astype("bool")
-        meta_df["ts_ms"]      = meta_df["ts_ms"].astype("int64")
 
     if not tr_df.empty:
         tr_df["episode_id"] = tr_df["episode_id"].astype("int64")
+        tr_df["failed"]     = tr_df["failed"].astype("bool")
+        tr_df["analyzed"]   = tr_df["analyzed"].astype("bool")
+        tr_df["ingest_ts"]      = tr_df["ingest_ts"].astype("int64")
+        tr_df["retry_count"]      = tr_df["retry_count"].astype("int16")
 
     return meta_df, tr_df
 
