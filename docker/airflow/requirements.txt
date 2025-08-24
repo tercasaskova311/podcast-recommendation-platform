@@ -16,3 +16,4 @@ pydub==0.25.1
 faster-whisper==1.1.1 
 ctranslate2==4.3.1
 onnxruntime==1.18.0
+vosk==0.3.45

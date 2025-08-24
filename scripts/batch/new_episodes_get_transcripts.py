@@ -308,6 +308,7 @@ def run_pipeline():
     )
 
     existing_ids = set(str(x) for x in get_existing_ids(DELTA_PATH_EPISODES, EPISODE_KEY))
+    print(f"Existitng: {existing_ids}")
     print(f"There are {len(existing_ids)} existing episode_ids")
 
     new_eps = [r for r in parsed_rows if r[EPISODE_KEY] not in existing_ids]
@@ -318,6 +319,8 @@ def run_pipeline():
 
     # 3) Build work list: retries first, then new items
     retry_queue = load_retry_queue()
+    print(f"RETRY: {retry_queue}")
+    
     seen: Set[str] = set()
     work: List[Dict[str, Any]] = []
     for ep in retry_queue:
@@ -385,9 +388,9 @@ def run_pipeline():
             "ingest_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "retry_count": min(prev_retry + 1, 3) if result.get("failed") else prev_retry,
         }
-        print(f"Added transcript (length {len(row['transcript'])}) of episode: {row['episode_id']}")
+        print(f"Added transcript of episode: {row['episode_id']}")
         print(row)
-        
+
         # Persist immediately
         upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY)
 
@@ -398,6 +401,8 @@ def run_pipeline():
 
         # Heartbeat to keep group membership
         consumer.poll(0)
+    
+    commit_all_polled(consumer, records)
 
     # 5) Done
     consumer.close()

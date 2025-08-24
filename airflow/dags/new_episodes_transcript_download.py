@@ -17,13 +17,13 @@ with DAG(
     
     new_episodes_download = BashOperator(
         task_id='new_episodes_download',
-        bash_command='python /opt/project/scripts/batch/new_episodes_download.py',
+        bash_command='python3 /opt/project/scripts/batch/new_episodes_download.py',
     )
     
 
     new_episodes_get_transcripts = BashOperator(
         task_id='new_episodes_get_transcripts',
-        bash_command='python /opt/project/scripts/batch/new_episodes_get_transcripts.py'
+        bash_command='python3 /opt/project/scripts/batch/new_episodes_get_transcripts.py'
     )
 
     new_episodes_download >> new_episodes_get_transcripts

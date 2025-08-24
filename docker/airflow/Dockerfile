@@ -18,6 +18,17 @@ RUN curl -fsSL https://downloads.apache.org/spark/spark-3.5.6/spark-3.5.6-bin-ha
 # Installa ffmpeg
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y git wget && rm -rf /var/lib/apt/lists/*
+
+# Put models under /models
+RUN mkdir -p /models && \
+    cd /models && \
+    wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip && \
+    apt-get update && apt-get install -y unzip && \
+    unzip -q vosk-model-small-en-us-0.15.zip && \
+    mv vosk-model-small-en-us-0.15 /models/vosk-small-en && \
+    rm -f vosk-model-small-en-us-0.15.zip
+
 # Variabili ambiente
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV SPARK_HOME=/opt/spark
