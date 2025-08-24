@@ -32,7 +32,7 @@ def main():
     if not DELTA_PATH_TRANSCRIPTS:
         raise ValueError("DELTA_PATH_TRANSCRIPTS is not set in config.settings")
 
-    df = read_sample_json(spark, SAMPLE_EPISODES_JSON_PATH)
+    df = read_sample_json(spark)
 
     df.show(5, truncate=False)
     df.printSchema()
