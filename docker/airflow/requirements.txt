@@ -8,3 +8,11 @@ coloredlogs
 humanfriendly
 kafka-python==2.2.11
 requests==2.32.3
+numpy==1.26.4
+pandas==2.2.2
+pyspark==3.5.1
+sentence-transformers==3.0.1
+torch==2.2.2
+transformers==4.41.2
+scikit-learn==1.5.1
+pymongo==4.7.3
