@@ -1,4 +1,4 @@
-# generate_user_events_to_kafka.py
+# scripts/generate_user_events_to_kafka.py
 import os, json, uuid, random, sys
 from datetime import datetime, timezone
 from typing import List
@@ -6,22 +6,20 @@ from faker import Faker
 from confluent_kafka import Producer
 from pymongo import MongoClient
 
-# ---------- Config (env) ----------
-BROKER = os.getenv("KAFKA_URL", "kafka1:9092")
-TOPIC  = os.getenv("TOPIC_USER_EVENTS_STREAMING", "user-events-streaming")
+from spark.config.settings import (
+    KAFKA_URL, TOPIC_USER_EVENTS_STREAMING,
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID_FIELD,
+    NUM_USERS, MIN_EPS, MAX_EPS,
+    EPISODE_MATCH, EPISODE_LIMIT, EPISODE_SAMPLE_N,
+)
 
-MONGO_URI   = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB    = os.getenv("MONGO_DB", "podcasts")
-EP_COLL     = os.getenv("EPISODES_COLLECTION", "episodes")
-EP_FIELD    = os.getenv("EPISODE_ID_FIELD", "episode_id")
+# Allow quick env overrides, but default to settings.py
+BROKER = os.getenv("KAFKA_URL", KAFKA_URL)
+TOPIC  = os.getenv("TOPIC_USER_EVENTS_STREAMING", TOPIC_USER_EVENTS_STREAMING)
 
-EP_MATCH_JSON = os.getenv("EPISODE_MATCH", "")  # e.g. '{"language":"en"}'
-EP_LIMIT      = int(os.getenv("EPISODE_LIMIT", "0"))
-EP_SAMPLE_N   = int(os.getenv("EPISODE_SAMPLE_N", "0"))
+EP_COLL  = MONGO_COLLECTION
+EP_FIELD = EPISODE_ID_FIELD
 
-NUM_USERS     = int(os.getenv("NUM_USERS", "300"))
-MIN_EPS       = int(os.getenv("MIN_EPS_PER_USER", "1"))
-MAX_EPS       = int(os.getenv("MAX_EPS_PER_USER", "5"))
 
 # ---------- Globals ----------
 fake = Faker()
@@ -33,27 +31,32 @@ EVENTS = ["pause","like","skip","rate","complete"]
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-def fetch_episode_ids_from_mongo() -> List[str]:
+def fetch_episode_ids_from_mongo(limit: int = 0, sample_n: int = 0) -> List[str]:
+    """
+    Fetch all episode_ids from Mongo (no filtering).
+    - limit: cap the number of IDs pulled from Mongo (0 = no limit)
+    - sample_n: randomly sample N IDs client-side after fetch (0 = no sampling)
+    """
     try:
         mc = MongoClient(MONGO_URI)
-        coll = mc[MONGO_DB][EP_COLL]
-        match = json.loads(EP_MATCH_JSON) if EP_MATCH_JSON.strip() else {}
-        proj  = {EP_FIELD: 1, "_id": 0}
+        coll = mc[MONGO_DB][EP_COLL]            # EP_COLL is the collection name string
+        proj = {EP_FIELD: 1, "_id": 0}          # EP_FIELD like "episode_id"
 
-        cursor = coll.find(match, proj)
-        if EP_LIMIT > 0:
-            cursor = cursor.limit(EP_LIMIT)
+        cursor = coll.find({}, proj)            # no filtering
+        if limit > 0:
+            cursor = cursor.limit(limit)
 
         ids = [str(doc[EP_FIELD]) for doc in cursor if EP_FIELD in doc]
-        ids = list(dict.fromkeys(ids))  # dedupe preserve order
+        ids = list(dict.fromkeys(ids))          # de-dupe, keep order
 
-        if EP_SAMPLE_N > 0 and len(ids) > EP_SAMPLE_N:
-            ids = random.sample(ids, EP_SAMPLE_N)
+        if sample_n > 0 and len(ids) > sample_n:
+            ids = random.sample(ids, sample_n)  # population, k
 
         return ids
     except Exception as e:
         print(f"[WARN] Mongo fetch failed: {e}")
         return []
+
 
 def generate_events(episodes: List[str], num_users=300, min_eps=1, max_eps=5) -> None:
     if not episodes:
