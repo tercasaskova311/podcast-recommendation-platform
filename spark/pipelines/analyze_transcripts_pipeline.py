@@ -224,7 +224,7 @@ def run_pipeline() -> None:
         pairs_df
         .filter(col("new_episode_id") != col("historical_episode_id"))
         .withColumn("model", lit(MODEL_NAME))
-        .withColumnRenamed("distance", "distance_embed")
+        .withColumnRenamed("distance", "similarity")
         .withColumn("created_at", F.to_utc_timestamp(F.current_timestamp(), "UTC"))
         .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
         )
