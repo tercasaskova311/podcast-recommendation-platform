@@ -263,12 +263,6 @@ def run_pipeline() -> None:
 # Summary log
     num_vectors = new_vec_df.count()
     num_sims = out_df.count() if wrote_sims else 0
-    log(
-        f"Stored {num_vectors} vectors; "
-        f"Wrote {num_sims} similarity rows"
-        f"{' (within-batch fallback)' if used_within else ''}; "
-        f"Marked {len(ep_ids)} episodes as analyzed."
-    )
 
 # 9) Stop session
     spark.stop()
