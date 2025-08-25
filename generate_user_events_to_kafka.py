@@ -76,7 +76,7 @@ def generate_events(episodes: List[str], num_users=300, min_eps=1, max_eps=5) ->
                 "event_id": str(uuid.uuid4()),
                 "ts": now_utc(),                # ISO8601
                 "user_id": uid,
-                "episode_id": ep,
+                "new_episode_id": ep,
                 "event": e,                     # one action per message
                 "device": device
             }
