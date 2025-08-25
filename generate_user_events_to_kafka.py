@@ -10,7 +10,7 @@ from spark.config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING,
     MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID_FIELD,
     NUM_USERS, MIN_EPS, MAX_EPS,
-    EPISODE_MATCH, EPISODE_LIMIT, EPISODE_SAMPLE_N,
+    EPISODE_LIMIT, EPISODE_SAMPLE_N,
 )
 
 # Allow quick env overrides, but default to settings.py
