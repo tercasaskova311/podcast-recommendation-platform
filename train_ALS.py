@@ -1,13 +1,10 @@
 from pyspark.sql import SparkSession, functions as F, types as T
-from pyspark.ml.recommendation import ALS
+from pyspark.ml.recommendation import ALS 
+#ALS => alternating least squares = collaborative filtering
 from pyspark.ml.feature import StringIndexer
 from pyspark.ml import Pipeline
 from delta.tables import DeltaTable
 
-from pyspark.sql import SparkSession, functions as F
-from pyspark.ml.recommendation import ALS
-from pyspark.ml.feature import StringIndexer
-from pyspark.ml import Pipeline
 from spark.config.settings import (
     DELTA_PATH_DAILY,
     ALS_MODEL_PATH, ALS_INDEXERS_PATH,
@@ -25,17 +22,19 @@ spark = (
 )
 
 # -------- 1) Load daily engagement per user per episode ----------
+#contains: user_id, new_episode_id, day, engagemnt, num_events, lst_ts, ...
 delta = spark.read.format("delta").load(DELTA_PATH_DAILY)
-#DELTA_PATH_DAILY   (daily aggregates: user, episode, day)
 
-#rating: sum(engagemnt) per user_id + episoded_id
+#why grouping again: delta stores daily engagemnt => ALD needs one row per user = we sum across days
+# rating: sum(engagemnt) per user_id + episoded_id
 ratings = (
     delta.groupBy("user_id","new_episode_id")
     .agg(F.sum("engagement").alias("engagement"))
-    .filter(F.col("engagement") > MIN_ENGAGEMENT)
+    .filter(F.col("engagement") > MIN_ENGAGEMENT) #removes weak signals
 )
 
 # -------- 2) Index string ids -> integer ids for ALS --------------------
+#ALS cannot handle strings IDs = convert to idx
 user_indexer   = StringIndexer(inputCol="user_id",   outputCol="user_idx", handleInvalid="skip")
 item_indexer   = StringIndexer(inputCol="new_episode_id",outputCol="item_idx", handleInvalid="skip")
 
@@ -52,25 +51,25 @@ als = ALS(
     userCol="user_idx",
     itemCol="item_idx",
     ratingCol="engagement",
-    rank=ALS_RANK,
-    maxIter=ALS_MAX_ITER,
-    regParam=ALS_REG,
-    implicitPrefs=True,
-    alpha=ALS_ALPHA,
+    rank=ALS_RANK, #latent dimension per user/item 
+    maxIter=ALS_MAX_ITER, #iterations to converge
+    regParam=ALS_REG, #regularization to prevent overfitting
+    implicitPrefs=True, 
+    alpha=ALS_ALPHA, #scaling factor
     nonnegative=True,
-    coldStartStrategy="drop"
+    coldStartStrategy="drop" #drop unseen users/items - prevent NaNs
 )
 
 model = als.fit(data)
 
-# Persist model + the indexer pipeline metadata (to reuse mappings)
 model.write().overwrite().save(ALS_MODEL_PATH)
-# Optionally also save the StringIndexers
 fitted.write().overwrite().save(ALS_MODEL_PATH + "_indexers")
 
 
 # -------- 4) Top-N per user (decode ids) --------------------------------
 raw_user_recs = model.recommendForAllUsers(TOP_N)
+#produce column: recommendations: [{"item_idx": 17, "rating": 4.8}, {"item_idx": 52, "rating": 4.5}, ...]
+#TOP N episodes personalized fro each user
 user_recs = (
     raw_user_recs
     .withColumn("rec", F.explode("recommendations"))
@@ -84,7 +83,7 @@ user_recs = (
     .select("user_id","new_episode_id","als_score")
 )
 
-# Save to Mongo
+# Save to Mongo 
 (user_recs.write
     .format("mongo")
     .mode("overwrite")
@@ -94,30 +93,5 @@ user_recs = (
     .save()
 )
 
-# -------- 5) Item-to-item recs (for “because you watched …”) ------------
-raw_item_recs = model.recommendForAllItems(TOP_N)
-item_item = (
-    raw_item_recs
-    .withColumn("rec", F.explode("recommendations"))
-    .select(
-        F.col("item_idx").alias("episode_idx"),
-        F.col("rec.item_idx").alias("similar_idx"),
-        F.col("rec.rating").alias("similarity")
-    )
-    .join(items_map.withColumnRenamed("item_idx","new_episode_idx"), "new_episode_idx")
-    .withColumnRenamed("new_episode_id","new_episode_id_src")
-    .join(items_map.withColumnRenamed("item_idx","similar_idx"), "similar_idx")
-    .withColumnRenamed("new_episode_id","new_episode_id_sim")
-    .select("new_episode_id_src","new_episode_id_sim","similarity")
-)
 
-# Save item-item to Mongo
-(item_item.write
-    .format("mongo")
-    .mode("overwrite")
-    .option("uri", MONGO_URI)
-    .option("database", "recommendations")
-    .option("collection", "als_item_item")
-    .save()
-)
 
