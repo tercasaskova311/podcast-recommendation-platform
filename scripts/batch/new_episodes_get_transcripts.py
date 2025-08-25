@@ -12,6 +12,8 @@ import json
 import time
 from typing import Any, Dict, List, Tuple, Set
 from collections import defaultdict
+from util.schemas import EPISODES_SCHEMA, TRANSCRIPTS_SCHEMA
+
 
 from kafka import KafkaConsumer
 from kafka.errors import CommitFailedError, RebalanceInProgressError
@@ -250,8 +252,8 @@ def load_retry_queue() -> List[Dict[str, Any]]:
 def run_pipeline():
     start = time.time()
 
-    ensure_table(DELTA_PATH_EPISODES, {...})
-    ensure_table(DELTA_PATH_TRANSCRIPTS, {...})
+    ensure_table(DELTA_PATH_EPISODES, EPISODES_SCHEMA)
+    ensure_table(DELTA_PATH_TRANSCRIPTS, TRANSCRIPTS_SCHEMA)
 
     # 1) Load retries
     retry_queue = load_retry_queue()
@@ -324,15 +326,15 @@ def run_pipeline():
             }
 
         row = {
-            "episode_id": eid,
-            "transcript": result.get("transcript"),
+            "episode_id": str(eid),
+            "transcript": (result.get("transcript") or None),
             "failed": bool(result.get("failed", False)),
-            "error": result.get("error"),
-            "duration": result.get("duration"),
-            "language": result.get("language"),
+            "error": (result.get("error") or None),
+            "duration": float(result.get("duration") or 0.0) if result.get("duration") is not None else None,
+            "language": (result.get("language") or None),
             "analyzed": False,
             "ingest_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "retry_count": min(prev_retry + 1, 3) if result.get("failed") else prev_retry,
+            "retry_count": min(prev_retry + 1, 3) if result.get("failed") else prev_retry
         }
         print(row)
         upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY)

@@ -13,17 +13,28 @@ from pyspark.errors import AnalysisException
 from delta.tables import DeltaTable
 from sentence_transformers import SentenceTransformer
 
-from ..util.common import get_spark
-from ..util.delta import _ensure_table as ensure_table        
-from ..util.mongo import write_to_mongo  
+from spark.util.common import get_spark
+from util.delta_io import ensure_table    
 
 
-from ..config.settings import (
-    MODEL_NAME, MAX_TOKENS, OVERLAP, SAFETY_MARGIN, BATCH_SIZE, DEVICE,
+from config.settings import (
     DELTA_PATH_TRANSCRIPTS, DELTA_PATH_VECTORS, DELTA_PATH_SIMILARITIES,
-    MONGO_URI, MONGO_DB, MONGO_COLLECTION,
-    RECOMPUTE_ALL, WITHIN_BATCH_IF_EMPTY, BATCH_DATE, TOP_K
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION_SIMILARITIES
 )
+BATCH_DATE = os.getenv("BATCH_DATE")#where does this take the value??
+
+# Model + embedding config
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MAX_TOKENS = 512
+OVERLAP = 32
+SAFETY_MARGIN = 8
+TOP_K = 3
+BATCH_SIZE = 64
+DEVICE = "cpu"
+
+# Control flags
+RECOMPUTE_ALL = False
+WITHIN_BATCH_IF_EMPTY = True
 
 def log(msg: str, level: str = "INFO") -> None:
     print(f"[{level}] {msg}")
@@ -138,7 +149,7 @@ def compute_topk_pairs(
             for rank, j in enumerate(idx, start=1):     # <-- rank 1..k
                 yield (qid, str(H_ids[j]), float(sims[j]), int(rank), int(K))
 
-    schema = "new_episode_id string, historical_episode_id string, similarity double, k int"
+    schema = ("new_episode_id string, historical_episode_id string, similarity double, rank int, top_k int")
     pairs = spark.createDataFrame(
         new_vec_df.select("episode_id","embedding").rdd.mapPartitions(part), schema
     )
@@ -252,7 +263,7 @@ def run_pipeline() -> None:
         .mode("append")
         .option("uri", MONGO_URI)
         .option("database", MONGO_DB)
-        .option("collection", MONGO_COLLECTION)
+        .option("collection", MONGO_COLLECTION_SIMILARITIES)
         .save())
         wrote_sims = True
     except Exception as e:

@@ -1,15 +1,14 @@
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from datetime import datetime
+from airflow.utils.dates import days_ago
 import yaml
-import os
 
 with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
 with DAG(
     dag_id='new_episodes_transcript_download',
-    start_date = datetime(2025, 6, 9),
+    start_date = days_ago(1),
     schedule_interval=config['new_episodes_transcript_download_interval'],
     catchup=False,
     tags=['batch', 'download'],

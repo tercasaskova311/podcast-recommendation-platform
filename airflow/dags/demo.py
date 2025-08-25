@@ -1,15 +1,14 @@
 
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from datetime import datetime
+from airflow.utils.dates import days_ago
 import os
 
 SPARK_URL= os.getenv("SPARK_URL")
 
 with DAG('demo',
         schedule_interval=None,
-        start_date = datetime(2025, 1, 1),
+        start_date = days_ago(1),
         catchup=False,
         tags=['batch']
 ) as dag:

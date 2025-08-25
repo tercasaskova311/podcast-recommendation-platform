@@ -44,8 +44,9 @@ services:
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
-#     - AIRFLOW_CONN_SPARK_DEFAULT=spark://?extra__spark__master=${SPARK_URL}
       - PYTHONPATH=/opt/project
+      - TRANSFORMERS_CACHE=/models/hf
+      - HF_HOME=/models/hf
     env_file:
       - ../../.env.development
     mem_limit: 6g            # hard cap; raise if you still see -9 kills
@@ -53,10 +54,10 @@ services:
     cpus: "2.0"              # throttle to 2 vCPUs (or raise if you want more speed)
     volumes:
       - ${PWD}:/opt/project
-
       - ${PWD}/airflow/dags:/opt/airflow/dags
       - ${PWD}/airflow/config:/opt/airflow/config
       - ${PWD}/data:/data
+      - models-cache:/models
     command: scheduler
     networks:
       - kafka-net
@@ -84,6 +85,7 @@ services:
 
 volumes:
   postgres-db-volume:
+  models-cache:
 
 networks:
   kafka-net:

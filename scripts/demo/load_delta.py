@@ -7,7 +7,8 @@ from typing import List, Dict, Any
 
 import pandas as pd
 import pyarrow as pa
-from util.delta_io import write_delta_overwrite, ensure_table
+from util.delta_io import write_delta_overwrite
+from util.schemas import EPISODES_SCHEMA, TRANSCRIPTS_SCHEMA
 from config.settings import SAMPLE_EPISODES_JSON_PATH, DELTA_PATH_EPISODES, DELTA_PATH_TRANSCRIPTS
 
 
@@ -42,28 +43,6 @@ def _derive_podcast_url(audio_url: str) -> str:
     m = re.match(r"^(https?://[^/]+)", audio_url.strip())
     return m.group(1) if m else None
 
-# NOTE: we use int64 epoch millis for ts_ms to avoid Delta “TimestampWithoutTimezone” feature
-ARROW_SCHEMA_EPISODES = pa.schema([
-    pa.field("episode_id",      pa.int64()),
-    pa.field("podcast_title",   pa.string()),
-    pa.field("podcast_author",  pa.string()),
-    pa.field("podcast_url",     pa.string()),
-    pa.field("episode_title",   pa.string()),
-    pa.field("description",     pa.string()),
-    pa.field("audio_url",       pa.string()),
-    pa.field("json_str",        pa.string())
-])
-
-ARROW_SCHEMA_TRANSCRIPTS = pa.schema([
-    pa.field("episode_id",      pa.int64()),
-    pa.field("transcript",      pa.string()),
-    pa.field("failed",          pa.bool_()),
-    pa.field("error",          pa.string()),
-    pa.field("duration",          pa.float32()),
-    pa.field("analyzed",        pa.bool_()),
-    pa.field("ingest_ts",           pa.string()),
-    pa.field("retry_count",           pa.int16()),
-])
 
 def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame):
 
@@ -77,7 +56,7 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
         transcript  = r.get("transcript")  or r.get("text")
 
         rows_meta.append({
-            "episode_id": int(episode_id),
+            "episode_id": str(episode_id),
             "podcast_title": r.get("podcast_title"),
             "podcast_author": r.get("podcast_author"),
             "podcast_url": _derive_podcast_url(r.get("audio_url")),
@@ -88,7 +67,7 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
         })
 
         rows_tr.append({
-            "episode_id": int(episode_id),
+            "episode_id": str(episode_id),
             "transcript": transcript,
             "failed": False,
             "error": None,
@@ -98,19 +77,7 @@ def _build_frames(records: List[Dict[str, Any]]) -> (pd.DataFrame, pd.DataFrame)
             "retry_count": 0
         })
 
-    meta_df = pd.DataFrame(rows_meta, columns=[f.name for f in ARROW_SCHEMA_EPISODES])
-    tr_df   = pd.DataFrame(rows_tr,   columns=[f.name for f in ARROW_SCHEMA_TRANSCRIPTS])
-
-    if not meta_df.empty:
-        meta_df["episode_id"] = meta_df["episode_id"].astype("int64")
-
-    if not tr_df.empty:
-        tr_df["episode_id"] = tr_df["episode_id"].astype("int64")
-        tr_df["failed"]     = tr_df["failed"].astype("bool")
-        tr_df["analyzed"]   = tr_df["analyzed"].astype("bool")
-        tr_df["retry_count"]      = tr_df["retry_count"].astype("int16")
-
-    return meta_df, tr_df
+    return rows_meta, rows_tr
 
 def main():
     for var in ("SAMPLE_EPISODES_JSON_PATH", "DELTA_PATH_EPISODES", "DELTA_PATH_TRANSCRIPTS"):
@@ -120,8 +87,8 @@ def main():
     records = _read_json_records(SAMPLE_EPISODES_JSON_PATH)
     meta_df, tr_df = _build_frames(records)
 
-    n_meta = write_delta_overwrite(DELTA_PATH_EPISODES, meta_df, ARROW_SCHEMA_EPISODES)
-    n_tr   = write_delta_overwrite(DELTA_PATH_TRANSCRIPTS, tr_df, ARROW_SCHEMA_TRANSCRIPTS)
+    n_meta = write_delta_overwrite(DELTA_PATH_EPISODES, meta_df, EPISODES_SCHEMA)
+    n_tr   = write_delta_overwrite(DELTA_PATH_TRANSCRIPTS, tr_df, TRANSCRIPTS_SCHEMA)
 
     print(f"Wrote {n_meta} rows → {DELTA_PATH_EPISODES}")
     print(f"Wrote {n_tr} rows → {DELTA_PATH_TRANSCRIPTS}")
