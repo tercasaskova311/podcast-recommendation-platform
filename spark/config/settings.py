@@ -24,7 +24,7 @@ DEVICE = os.getenv("DEVICE", "cpu")
 
 # MongoDB
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "similarities")
+MONGO_DB = os.getenv("MONGO_DB", "podcasts")
 # Where episode docs live (used by the producer to fetch episode_ids)
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "episodes")
 EPISODE_ID_FIELD = os.getenv("EPISODE_ID_FIELD", "episode_id")
