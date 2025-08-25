@@ -1,4 +1,3 @@
-# config/settings.py
 import os
 
 # Kafka
