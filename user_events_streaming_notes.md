@@ -75,7 +75,7 @@ Consumes events from **Kafka**, processes them using **Spark Structured Streamin
 4. **Aggregate engagement daily** per **(user, episode, day)**.
 5. **Upsert into Delta Lake** (`DELTA_PATH_DAILY`).
 
-**Output (Silver Table):**
+**Output (Delta Lake Table):**
 
 | user\_id | new\_episode\_id | day        | engagement | num\_events | last\_ts         |
 | -------- | ---------------- | ---------- | ---------- | ----------- | ---------------- |
@@ -91,7 +91,7 @@ Trains an **ALS implicit feedback model** on aggregated engagement data and stor
 
 **Main Steps:**
 
-1. **Load Silver Table** from `DELTA_PATH_DAILY`.
+1. **Load Delta Table** from `DELTA_PATH_DAILY`.
 2. **Aggregate engagement** across **all days** per `(user, episode)`.
 3. **Index string IDs** → numeric indices (`user_idx`, `item_idx`).
 4. **Train ALS**:
@@ -99,7 +99,6 @@ Trains an **ALS implicit feedback model** on aggregated engagement data and stor
    * Implicit feedback (`implicitPrefs=True`).
    * Uses weighted engagement as **confidence scores**.
 5. **Generate Recommendations**:
-
    * **Personalized Top-N per User** → `als_top_n` collection.
 
 ---

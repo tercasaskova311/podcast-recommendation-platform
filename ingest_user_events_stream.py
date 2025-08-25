@@ -96,7 +96,7 @@ def process_batch(batch_df, batch_id):
               .save(DELTA_PATH_DAILY))
         tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
 
-    # Merge new data into Silver table (upsert)
+    # Merge new data into table (upsert)
     (
         tgt.alias("t")
            .merge(
