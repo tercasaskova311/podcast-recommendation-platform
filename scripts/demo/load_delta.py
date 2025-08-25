@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import os
 import re
 import json
@@ -128,6 +125,7 @@ def main():
 
     print(f"Wrote {n_meta} rows → {DELTA_PATH_EPISODES}")
     print(f"Wrote {n_tr} rows → {DELTA_PATH_TRANSCRIPTS}")
+
 
 if __name__ == "__main__":
     main()
