@@ -85,7 +85,10 @@ def main():
             raise ValueError(f"{var} is not set.")
 
     records = _read_json_records(SAMPLE_EPISODES_JSON_PATH)
-    meta_df, tr_df = _build_frames(records)
+    meta_rows, tr_rows = _build_frames(records)
+
+    meta_df = pd.DataFrame(meta_rows)
+    tr_df   = pd.DataFrame(tr_rows)
 
     n_meta = write_delta_overwrite(DELTA_PATH_EPISODES, meta_df, EPISODES_SCHEMA)
     n_tr   = write_delta_overwrite(DELTA_PATH_TRANSCRIPTS, tr_df, TRANSCRIPTS_SCHEMA)

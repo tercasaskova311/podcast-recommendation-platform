@@ -213,12 +213,28 @@ def load_retry_queue() -> List[Dict[str, Any]]:
         return []
 
     tdf = safe_read_df(DELTA_PATH_TRANSCRIPTS)
-    if tdf.empty or "failed" not in tdf.columns:
+    if tdf.empty or "failed" not in tdf.columns or "episode_id" not in tdf.columns:
         return []
+    
+        # Drop schema/placeholder rows: require a real episode_id
+    tdf = tdf[tdf["episode_id"].notna()]
+    tdf["episode_id"] = tdf["episode_id"].astype(str).str.strip()
+    tdf = tdf[tdf["episode_id"] != ""]
+    if tdf.empty:
+        return []
+
+    # Normalize retry_count safely: None, "", "integer", etc. -> 0
+    import pandas as pd
     if "retry_count" not in tdf.columns:
         tdf["retry_count"] = 0
+    tdf["retry_count"] = (
+        pd.to_numeric(tdf["retry_count"], errors="coerce")
+          .fillna(0)
+          .astype(int)
+    )
 
-    retryable = tdf[(tdf["failed"] == True) & (tdf["retry_count"].fillna(0) < 3)].copy()
+    retryable = tdf[(tdf["failed"] == True) & (tdf["retry_count"] < 3)].copy()
+
     if retryable.empty:
         return []
 
@@ -282,7 +298,7 @@ def run_pipeline():
 
     # Upsert metadata for NEW
     if new_eps:
-        upsert_delta(DELTA_PATH_EPISODES, new_eps, key=EPISODE_KEY)
+        upsert_delta(DELTA_PATH_EPISODES, new_eps, key=EPISODE_KEY, schema=EPISODES_SCHEMA)
 
     if not retry_queue and not new_eps:
         print("Nothing to process (no retries, no new episodes).")
@@ -338,7 +354,7 @@ def run_pipeline():
             "retry_count": min(prev_retry + 1, 3) if result.get("failed") else prev_retry
         }
         print(row)
-        upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY)
+        upsert_delta(DELTA_PATH_TRANSCRIPTS, [row], key=EPISODE_KEY, schema=TRANSCRIPTS_SCHEMA)
 
         # Commit the offset for this eid if it was part of the Kafka poll
         if eid in ep_offsets:

@@ -23,7 +23,6 @@ services:
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
       - AIRFLOW__WEBSERVER__RBAC=True
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-#     - AIRFLOW_CONN_SPARK_DEFAULT=spark://?extra__spark__master=${SPARK_URL}
     env_file:
       - ../../.env.development
     volumes:
@@ -49,9 +48,9 @@ services:
       - TRANSFORMERS_CACHE=/opt/airflow/.cache/huggingface
     env_file:
       - ../../.env.development
-    mem_limit: 10g            # hard cap; raise if you still see -9 kills
-    mem_reservation: 4g      # soft reservation; useful under memory pressure
-    cpus: "2.0"              # throttle to 2 vCPUs (or raise if you want more speed)
+    mem_limit: 10g            
+    mem_reservation: 4g      
+    cpus: "2.0"            
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/airflow/dags:/opt/airflow/dags
@@ -70,7 +69,6 @@ services:
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
-#     - AIRFLOW_CONN_SPARK_DEFAULT=spark://?extra__spark__master=${SPARK_URL}
     env_file:
       - ../../.env.development
     volumes:

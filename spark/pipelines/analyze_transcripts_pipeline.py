@@ -28,13 +28,14 @@ MAX_TOKENS = 256
 OVERLAP = 32
 SAFETY_MARGIN = 8
 TOP_K = 3
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 DEVICE = "cpu"
 
 # Control flags
 RECOMPUTE_ALL = False
 WITHIN_BATCH_IF_EMPTY = True
 BATCH_DATE = ""
+EMBED_LIMIT = 50
 
 
 def log(msg: str, level: str = "INFO") -> None:
@@ -89,7 +90,7 @@ def embed_long_document(
 
     # Token counts per chunk (as weights)
     tok_counts = [len(model.tokenizer(c, add_special_tokens=True, truncation=True, max_length=eff_max).get("input_ids", [])) for c in chunks]
-    
+
     # Get chunk embeddings in batches; already L2-normalized per chunk
     embs = model.encode(chunks, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False)
     embs = np.asarray(embs, dtype="float32")
@@ -110,17 +111,23 @@ def compute_topk_pairs(
     model_dim: int,
 ) -> Tuple[DataFrame, bool]:
 
-    used_within = False
-    if (hist_df.rdd.isEmpty()) and WITHIN_BATCH_IF_EMPTY:
-        hist_df = new_vec_df.select("episode_id", "embedding")
-        used_within = True
+        # --- collect history without pandas ---
+    limit_n = int(os.environ.get("SIM_HISTORY_LIMIT", "20000"))
+    hist_df = hist_df.limit(limit_n)
 
-    hist_pd = hist_df.toPandas()
-    H_ids = hist_pd["episode_id"].astype(str).to_numpy() if len(hist_pd) else np.array([], str)
-    H = (np.vstack(hist_pd["embedding"].to_numpy()).astype("float32")
-         if len(hist_pd)
-         else np.zeros((0, model_dim), "float32")
-    )
+    rows_iter = hist_df.select("episode_id", "embedding").toLocalIterator()
+    H_ids_list, H_list = [], []
+    for r in rows_iter:
+        H_ids_list.append(str(r["episode_id"]))
+        H_list.append(np.asarray(r["embedding"], dtype="float32"))
+
+    if H_list:
+        H = np.vstack(H_list).astype("float32")
+        H /= (np.linalg.norm(H, axis=1, keepdims=True) + 1e-8)
+    else:
+        H = np.zeros((0, model_dim), dtype="float32")
+
+    H_ids = np.asarray(H_ids_list, dtype=object)
 
     if H.shape[0]:
         H /= (np.linalg.norm(H, axis=1, keepdims=True) + 1e-8)
@@ -160,7 +167,7 @@ def compute_topk_pairs(
     pairs = spark.createDataFrame(
         new_vec_df.select("episode_id","embedding").rdd.mapPartitions(part), schema
     )
-    return pairs, used_within
+    return pairs
 
 
 # ---------------- PIPELINE ----------------
@@ -206,31 +213,63 @@ def run_pipeline() -> None:
         return
     
     # 3) Embed transcripts into vector space (on driver)
-    pdf = pending.toPandas()
-    ep_ids = pdf["episode_id"].astype(str).tolist()
-    texts = pdf["transcript"].fillna("").tolist()
-    dates = pdf["date"].astype(str).tolist() if "date" in pdf.columns else [None] * len(ep_ids)
 
-    # Load embedding model
+
+
+    # pdf = pending.toPandas()
+    # ep_ids = pdf["episode_id"].astype(str).tolist()
+    # texts = pdf["transcript"].fillna("").tolist()
+    # dates = pdf["date"].astype(str).tolist() if "date" in pdf.columns else [None] * len(ep_ids)
+
+    # # Load embedding model
+    # cache_dir = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE")
+    # model = SentenceTransformer(MODEL_NAME, device=DEVICE, cache_folder=cache_dir)
+    
+    # # Enforce the real model limit (MiniLM-L6-v2 is 256)
+    # model.max_seq_length = min(int(getattr(model, "max_seq_length", MAX_TOKENS)), MAX_TOKENS)
+
+    # embedding_dim = model.get_sentence_embedding_dimension()
+
+    # vecs = []
+    # for t in texts:
+    #     v = embed_long_document(t, model, MAX_TOKENS, OVERLAP, SAFETY_MARGIN, BATCH_SIZE)
+    #     vecs.append(v if v is not None else np.zeros(embedding_dim, dtype="float32"))
+
+
+    # rows = [(ep_ids[i], dates[i], vecs[i].tolist(), MODEL_NAME) for i in range(len(ep_ids))]
+    # schema = "episode_id string, date string, embedding array<float>, model string"
+    # new_vec_df = (spark.createDataFrame(rows, schema)
+    #             .withColumn("created_at", F.current_timestamp())
+    #             .cache())
+    
+
+    from pyspark import StorageLevel
+
+    # DEV: optionally cap how many episodes you embed in one run
+    pending = pending.limit(EMBED_LIMIT)
+
+    # Load embedding model ONCE
     cache_dir = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE")
     model = SentenceTransformer(MODEL_NAME, device=DEVICE, cache_folder=cache_dir)
-    
-    # Enforce the real model limit (MiniLM-L6-v2 is 256)
     model.max_seq_length = min(int(getattr(model, "max_seq_length", MAX_TOKENS)), MAX_TOKENS)
-
     embedding_dim = model.get_sentence_embedding_dimension()
 
-    vecs = []
-    for t in texts:
-        v = embed_long_document(t, model, MAX_TOKENS, OVERLAP, SAFETY_MARGIN, BATCH_SIZE)
-        vecs.append(v if v is not None else np.zeros(embedding_dim, dtype="float32"))
+    # Stream episodes one-by-one to avoid huge RAM spikes
+    rows = []
+    for r in pending.select("episode_id", "transcript", *(["date"] if "date" in pending.columns else [])).toLocalIterator():
+        eid = str(r["episode_id"])
+        txt = (r["transcript"] or "")
+        date_val = str(r["date"]) if "date" in r and r["date"] is not None else None
 
+        v = embed_long_document(txt, model, MAX_TOKENS, OVERLAP, SAFETY_MARGIN, BATCH_SIZE)
+        if v is None:
+            v = np.zeros(embedding_dim, dtype="float32")
+        rows.append((eid, date_val, v.tolist(), MODEL_NAME))
 
-    rows = [(ep_ids[i], dates[i], vecs[i].tolist(), MODEL_NAME) for i in range(len(ep_ids))]
     schema = "episode_id string, date string, embedding array<float>, model string"
     new_vec_df = (spark.createDataFrame(rows, schema)
                 .withColumn("created_at", F.current_timestamp())
-                .cache())
+                .persist(StorageLevel.DISK_ONLY))  # avoid caching in RAM
 
     # Ensure schema exists for vectors and similarities
     ensure_table(spark, DELTA_PATH_VECTORS, new_vec_df)
@@ -255,7 +294,7 @@ def run_pipeline() -> None:
         hist_df = spark.createDataFrame([], "episode_id string, embedding array<float>")
 
     # 5) KNN similarity computation
-    pairs_df, used_within = compute_topk_pairs(spark, new_vec_df, hist_df, embedding_dim)
+    pairs_df = compute_topk_pairs(spark, new_vec_df, hist_df, embedding_dim)
 
     # 6) Format similarities output  (content-only)
     out_df = (
