@@ -1,96 +1,102 @@
 # User Events Notes
 
--  **generation** (Kafka)
+- **generation** (Kafka)
 - **streaming / aggregation** (Spark → Delta)
 - **training a recommendations** (ALS → Mongo)
 
+----------------------
+## **1. Generate User Events**
+
+**Script:** `spark/pipelines/generate_user_events_pipeline.py`
+
+- Input: Episode IDs are fetched from MongoDB → used as valid new_episode_id values.
+- Synthetic users: Creates NUM_USERS random user IDs (uuid4).
+- Events generated: For each user, we randomly simulate actions on episodes: pause, like, skip, rate, complete.
+
+*Message structure (Kafka)*	
+- Each message sent to Kafka is a JSON object like: 
+json<br>{<br> "event_id": "...",<br> "ts": "...",<br> "user_id": "...",<br> "new_episode_id": "...",<br> "event": "like",<br> "device": "ios",<br> "rating": 5,<br> "position_sec": 123,<br> "from_sec": 100,<br> "to_sec": 120,<br> "played_pct": 1.0<br>}
+
+- Kafka topic: All events are streamed into one Kafka topic → TOPIC_USER_EVENTS_STREAMING. 
+Each message is keyed by user_id so events for the same user stay in order.
+- Storage: There’s no local storage — the raw events live only in Kafka until Spark consumes them.
 ---
 
-## 1. Generating events (`spark/pipelines/generate_user_events_pipeline.py`)
+## **2. Stream Events & Build Daily Engagement**
 
-| **Component**       | **Purpose & Data Flow**                                                                                                                                                                                                                  |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input source**    | MongoDB (collection of podcast episode IDs).                                                                                                                                                                                             |
-| **Helper**          | `fetch_episode_ids_from_mongo()` → pulls `new_episode_id` values. Can limit or sample.                                                                                                                                                       |
-| **Synthetic users** | `uuid4()` generates `NUM_USERS` random IDs.                                                                                                                                                                                              |
-| **Event types**     | One of `["pause","like","skip","rate","complete"]`. Each has extra metadata: <br> - `rate` → adds `rating` 1–5 <br> - `pause` → adds `position_sec` <br> - `skip` → adds `from_sec`, `to_sec` <br> - `complete` → adds `played_pct=1.0`. |
-| **Message format**  | JSON with fields: `event_id`, `ts`, `user_id`, `new_episode_id`, `event`, `device`, plus event-specific fields.                                                                                                                              |
-| **Output sink**     | Kafka (`TOPIC_USER_EVENTS_STREAMING`), keyed by `user_id` (ensures per-user ordering).                                                                                                                                                   |
-| **Storage**         | Not persisted locally; only streamed into Kafka.                                                                                                                                                                                         |
+**Script:** `spark/pipelines/stream_user_events_pipeline.py`
 
----
+- Input source:	Spark reads the Kafka topic TOPIC_USER_EVENTS_STREAMING. Each message = one event JSON from the generator.
+- Parses fields: event_id, user_id, new_episode_id, event, rating, device, ts, position_sec, from_sec, to_sec, played_pct.
 
-## 2. Spark Streaming (User Events → Delta)
+- Event scoring: Converts raw events → numeric engagement score
+    - like → LIKE_W 
+    - complete → COMPLETE_W 
+    - rate → rating - 3 
+    - pause → scaled fraction of listened time 
+    - skip → SKIP_W
 
-| **Component**                   | **Purpose & Data Flow**                                                                                                                                                                            |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input source**                | Kafka topic (`TOPIC_USER_EVENTS_STREAMING`).                                                                                                                                                       |
-| **Schema**                      | JSON fields: `event_id, user_id, new_episode_id, event, rating, device, ts, position_sec, from_sec, to_sec, played_pct`.                                                                           |
-| **Parsing**                     | `CAST(value AS STRING)` → `from_json(schema)`.                                                                                                                                                     |
-| **Deduplication**               | `.withWatermark("ts","2 hours").dropDuplicates(["event_id"])`.                                                                                                                                     |
-| **Weighting events**            | Map events to engagement scores: <br> - like → `LIKE_W` <br> - complete → `COMPLETE_W` <br> - rate → `(rating - 3.0)` <br> - pause → `min(position_sec/PAUSE_SEC_CAP,1.0)` <br> - skip → `SKIP_W`. |
-| **Aggregation per micro-batch** | Group by `(user_id,new_episode_id,day)` → `sum(weight)` as `engagement`, `count(*)` as `num_events`, `max(ts)` as `last_ts`.                                                                       |
-| **Storage**                     | Delta Lake table at `DELTA_PATH_DAILY` (Silver). Merge/upsert ensures incremental updates.                                                                                                         |
-| **Checkpointing**               | Checkpoint dir = `USER_EVENT_STREAM`.                                                                                                                                                              |
+- Grouping logic: Spark groups events by user, episode, and day → calculates total engagement → saves it for training. 
+    - sum(weight) → total engagement 
+    - count(*) → number of events 
+    - max(ts) → most recent activity
 
----
+- Output storage: Writes aggregated daily engagement data into a Delta Lake table → DELTA_PATH_DAILY.
 
-## 3. Training (Spark ML: ALS - Alternating Leaast Square)
+- Checkpointing: Uses USER_EVENT_STREAM directory to track processed Kafka offsets → ensures exactly-once processing.
 
-| **Component**             | **Purpose & Data Flow**                                                                                                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input source**          | Delta table (`DELTA_PATH_DAILY`).                                                                                                                                                                                                      |
-| **Pre-processing**        | Aggregate daily rows into total per `(user_id, new_episode_id)`. Filter `engagement > MIN_ENGAGEMENT` (removes noise).                                                                                                                 |
-| **ID Encoding**           | Spark ML `StringIndexer`: <br> - `user_id → user_idx` <br> - `new_episode_id → item_idx`. Save both mappings for decoding.                                                                                                             |
-| **ALS model**             | `ALS` collaborative filtering (implicit feedback mode): <br> - `userCol="user_idx"` <br> - `itemCol="item_idx"` <br> - `ratingCol="engagement"` <br> - `rank=ALS_RANK`, `regParam=ALS_REG`, `maxIter=ALS_MAX_ITER`, `alpha=ALS_ALPHA`. |
-| **Training**              | Learns latent factors for users + episodes → predicts preference strength.                                                                                                                                                             |
-| **Output**                | - ALS model saved to `ALS_MODEL_PATH`. <br> - Indexers saved alongside model.                                                                                                                                                          |
-| **Top-N recommendations** | `recommendForAllUsers(TOP_N)` → explode into rows `(user_id, new_episode_id, als_score)`.                                                                                                                                              |
-| **Final storage**         | MongoDB (`MONGO_DB_USER_EVENTS`.`MONGO_COLLECTION_USER_EVENTS`).                                                                                                                                                                       |
+## **3. Train Recommendations (ALS Model)**
 
----
+**Script:** `spark/pipelines/train_user_recs_pipeline.py`
 
-## Data Flow Summary
+- Input data: Loads daily engagement data from Delta Lake (DELTA_PATH_DAILY).Each row = one user’s engagement score for one episode per day.
+- Groups across days → sums engagement per (user_id, new_episode_id).
+- Fits a new StringIndexer every time → captures new users and new episodes automatically.
+- Trains a new ALS model from scratch.
+- Generates Top-N recommendations.
+- Overwrites MongoDB with fresh recommendations.
+
+!!! Because the script always reloads all data and re-fits everything, retraining is idempotent — we can run it as often as we want without breaking past data... idk if we schedule this in DAG - airflow too? 
+
+# **What ALS Actually Does:**
+
+- Input = Engagement Matrix
+- Rows = users
+- Columns = episodes
+- Cells = summed engagement score (how much the user interacted with an episode)
+- ALS algorithm (Alternating Least Squares):
+    - Starts with random hidden “taste” vectors for users and episodes
+    - Step 1: Fix user vectors → optimize episode vectors
+    - Step 2: Fix episode vectors → optimize user vectors
+    - Repeats until error is minimized
+    - Produces a latent vector for each user and each episode
+
+- Recommendations:
+Predicted preference = dot product of user vector and episode vector.
+Sort by score → take Top-N episodes per user.
+
+## **4. Data Flow Overview**
 
 ```mermaid
 flowchart LR
-  A[MongoDB (Episodes)] -->|episode_ids| B[Event Generator]
-  B -->|synthetic JSON events| C[Kafka Topic]
-  C --> D[Spark Streaming]
-  D -->|weights + agg| E[Delta Table]
-  E -->|training data| F[ALS Model Training]
-  F -->|Top-N recs| G[MongoDB (User Recs)]
+    A[MongoDB (Episodes)] -->|episode IDs| B[Event Generator]
+    B -->|synthetic events| C[Kafka]
+    C --> D[Spark Streaming]
+    D -->|aggregated daily data| E[Delta Lake]
+    E -->|training data| F[ALS Model Training]
+    F -->|Top-N recs| G[MongoDB (User Recommendations)]
 ```
 
 ---
 
-##  ALS Training Explained
+## **6. Storage Summary**
 
-* **Goal:** Learn hidden “dimensions” that explain which users like which episodes.
-* **Input matrix:** Rows = users, columns = episodes, entries = engagement scores
+| **Stage**             | **Where data is stored**                 |
+| --------------------- | ---------------------------------------- |
+| Episode catalog       | MongoDB                                  |
+| Raw events            | Kafka                                    |
+| Daily engagement      | Delta Lake (`DELTA_PATH_DAILY`)          |
+| Streaming checkpoints | Filesystem (`USER_EVENT_STREAM`)         |
+| ALS model + mappings  | Filesystem (`ALS_MODEL_PATH`)            |
+| Recommendations       | MongoDB (`MONGO_COLLECTION_USER_EVENTS`) |
 
-* **ALS (Alternating Least Squares):**
-
-  1. Start with random latent factors for users & items.
-  2. Fix user factors → solve least squares for items.
-  3. Fix item factors → solve least squares for users.
-  4. Alternate until convergence (minimizes error).
-* **Why implicitPrefs=True?**
-  Engagement is *observed behavior* (pause, like, etc.), not explicit ratings. ALS treats them as confidence-weighted implicit feedback.
-* **Outputs:** For each user, vector in latent space. For each episode, vector in same space. Dot product = predicted affinity.
-* **Recommendations:** Rank episodes by predicted affinity per user.
-
----
-
-## Storage Overview
-
-| **Stage**                              | **Storage**                           |
-| -------------------------------------- | ------------------------------------- |
-| Episode catalog                        | MongoDB (source of episode\_ids).     |
-| User events (raw)                      | Kafka topic.                          |
-| User events (Silver, daily engagement) | Delta Lake at `DELTA_PATH_DAILY`.     |
-| Checkpoints                            | Filesystem dir = `USER_EVENT_STREAM`. |
-| ALS model + indexers                   | Filesystem dir = `ALS_MODEL_PATH`.    |
-| Recommendations                        | MongoDB (`MONGO_DB_USER_EVENTS`).     |
-
----
