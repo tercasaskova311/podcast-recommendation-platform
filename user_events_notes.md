@@ -4,6 +4,13 @@
 - **streaming / aggregation** (Spark → Delta)
 - **training a recommendations** (ALS → Mongo)
 
+## quick summary: 
+We generate fake user events for podcast episodes from MongoDB and send them as JSON messages into a Kafka topic (one event per message).
+Spark then streams these events from Kafka, assigns engagement weights, and aggregates daily engagement per user + episode into Delta Lake.
+From Delta, we train an ALS recommendation model that learns user preferences and generates Top‑N recommended episodes per user.
+Finally, we save these recommendations into MongoDB so we always have the latest personalized results.
+Right now, retraining happens manually, but later we'll schedule it in Airflow? (idk about this part, right now: every time the ALS training script runs, it's overwriting the model...)
+
 ----------------------
 ## **1. Generate User Events**
 
@@ -55,6 +62,32 @@ Each message is keyed by user_id so events for the same user stay in order.
 - Trains a new ALS model from scratch.
 - Generates Top-N recommendations.
 - Overwrites MongoDB with fresh recommendations.
+    - example of mongo inputs:
+
+`recommendations> db.als_top_n.find()
+| 
+[
+  {
+    _id: ObjectId('68acc085007ec86e276b6b61'),
+    user_id: '42423dac-043e-4c34-860e-11f3fbaf0276',
+    new_episode_id: '41354833716',
+    als_score: 1.0000100135803223
+  },
+  {
+    _id: ObjectId('68acc085007ec86e276b6b62'),
+    user_id: '42423dac-043e-4c34-860e-11f3fbaf0276',
+    new_episode_id: '41350250744',
+    als_score: 0.9996482729911804
+  },
+  {
+    _id: ObjectId('68acc085007ec86e276b6b63'),
+    user_id: '42423dac-043e-4c34-860e-11f3fbaf0276',
+    new_episode_id: '910020010',
+    als_score: 0.9990634322166443
+  },
+]
+recommendations> `
+    
 
 !!! Because the script always reloads all data and re-fits everything, retraining is idempotent — we can run it as often as we want without breaking past data... idk if we schedule this in DAG - airflow too? 
 
