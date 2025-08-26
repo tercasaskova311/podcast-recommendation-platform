@@ -19,6 +19,7 @@ spark = (
 )
 
 # ----------------- Schema -----------------
+# Describe the JSON in Kafka. 
 schema = StructType([
     StructField("event_id", StringType()),
     StructField("user_id", StringType()),
@@ -38,7 +39,8 @@ raw = (
     spark.readStream.format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_SERVERS)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
-    .option("startingOffsets", "earliest")
+    .option("startingOffsets", "latest") #start from latest offsets
+    .option("failOnDataLoss", "false")
     .load()
 )
 
@@ -53,6 +55,7 @@ parsed = (
 )
 
 # ----------------- Compute Engagement Weights -----------------
+# Map each event to a numeric "energy" contribution.
 w = (
     F.when(F.col("event")=="like", F.lit(LIKE_W))
      .when(F.col("event")=="complete", F.lit(COMPLETE_W))
@@ -113,7 +116,7 @@ def process_batch(batch_df, batch_id):
                "user_id":    F.col("s.user_id"),
                "new_episode_id": F.col("s.new_episode_id"),
                "day":        F.col("s.day"),
-               "engagement": F.col("s.engagement"),
+                "engagement": F.col("s.engagement"),
                "num_events": F.col("s.num_events"),
                "last_ts":    F.col("s.last_ts"),
                "created_at": F.current_timestamp(),
@@ -127,7 +130,7 @@ q = (
     scored.writeStream
           .foreachBatch(process_batch)
           .option("checkpointLocation", USER_EVENT_STREAM)
-          .outputMode("update")
+          .trigger(processingTime="2 seconds")    
           .start()
 )
 

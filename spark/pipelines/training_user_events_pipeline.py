@@ -1,6 +1,5 @@
 from pyspark.sql import SparkSession, functions as F, types as T
-from pyspark.ml.recommendation import ALS 
-#ALS => alternating least squares = collaborative filtering
+from pyspark.ml.recommendation import ALS #ALS => alternating least squares = collaborative filtering
 from pyspark.ml.feature import StringIndexer
 from pyspark.ml import Pipeline
 from delta.tables import DeltaTable
