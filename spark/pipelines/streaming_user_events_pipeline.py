@@ -23,7 +23,7 @@ spark = (
 schema = StructType([
     StructField("event_id", StringType()),
     StructField("user_id", StringType()),
-    StructField("new_episode_id", StringType()),
+    StructField("episode_id", StringType()),
     StructField("event", StringType()),
     StructField("rating", IntegerType()),
     StructField("device", StringType()),
@@ -77,7 +77,7 @@ def process_batch(batch_df, batch_id):
         return
 
     daily = (
-        batch_df.groupBy("user_id", "new_episode_id", "day")
+        batch_df.groupBy("user_id", "episode_id", "day")
                 .agg(
                     F.sum("weight").alias("engagement"),
                     F.count(F.lit(1)).alias("num_events"),
@@ -104,7 +104,7 @@ def process_batch(batch_df, batch_id):
         tgt.alias("t")
            .merge(
                daily.alias("s"),
-               "t.user_id = s.user_id AND t.new_episode_id = s.new_episode_id AND t.day = s.day"
+               "t.user_id = s.user_id AND t.episode_id = s.episode_id AND t.day = s.day"
            )
            .whenMatchedUpdate(set={
                "engagement": F.col("t.engagement") + F.col("s.engagement"),
@@ -114,7 +114,7 @@ def process_batch(batch_df, batch_id):
            })
            .whenNotMatchedInsert(values={
                "user_id":    F.col("s.user_id"),
-               "new_episode_id": F.col("s.new_episode_id"),
+               "episode_id": F.col("s.episode_id"),
                "day":        F.col("s.day"),
                 "engagement": F.col("s.engagement"),
                "num_events": F.col("s.num_events"),

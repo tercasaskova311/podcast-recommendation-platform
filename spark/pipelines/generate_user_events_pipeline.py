@@ -8,7 +8,7 @@ from pymongo import MongoClient
 
 from spark.config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING,
-    MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID_FIELD,
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID,
     NUM_USERS, MIN_EPS, MAX_EPS,
     EPISODE_LIMIT, EPISODE_SAMPLE_N,
 
@@ -19,7 +19,7 @@ KAFKA = os.getenv("KAFKA_URL", KAFKA_URL)
 TOPIC  = os.getenv("TOPIC_USER_EVENTS_STREAMING", TOPIC_USER_EVENTS_STREAMING)
 
 EP_COLL  = MONGO_COLLECTION
-EP_FIELD = EPISODE_ID_FIELD
+EP_FIELD = EPISODE_ID
 
 
 # ---------- Globals ----------
@@ -82,7 +82,7 @@ def generate_events(
                 "event_id": str(uuid.uuid4()),
                 "ts": now_utc(),                # ISO8601
                 "user_id": uid,
-                EP_FIELD: ep,
+                "episode_id": ep,
                 "event": e,                     # one action per message
                 "device": device
             }

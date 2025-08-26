@@ -41,15 +41,14 @@ DEVICE        = os.getenv("DEVICE", "cuda" if os.getenv("USE_CUDA", "1") == "1" 
 MONGO_URI        = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB         = os.getenv("MONGO_DB", "podcasts")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "similarities")   # default collection
-EPISODE_ID_FIELD = os.getenv("EPISODE_ID_FIELD", "new_episode_id") # not "episode_id"
+EPISODE_ID = os.getenv("EPISODE_ID", "new_episode_id") # not "episode_id"
 
 
 # =============================================================================
 # MongoDB (ALS outputs / user events)
 # =============================================================================
-MONGO_DB_USER_EVENTS         = os.getenv("MONGO_DB_USER_EVENTS", "recommendations_user")
 MONGO_COLLECTION_USER_EVENTS = os.getenv("MONGO_COLLECTION_USER_EVENTS", "training_user_events")
-
+MONGO_COLLECTION_FINAL_RECS = os.getenv("MONGO_COLLECTION_FINAL_RECS", "final_recommendations")
 
 # =============================================================================
 # Transcript similarities: control flags

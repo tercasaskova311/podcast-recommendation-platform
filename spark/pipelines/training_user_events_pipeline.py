@@ -8,7 +8,7 @@ from spark.config.settings import (
     DELTA_PATH_DAILY,
     ALS_MODEL_PATH,TOP_N, ALS_RANK, ALS_REG, 
     ALS_MAX_ITER, ALS_ALPHA, MIN_ENGAGEMENT, MONGO_URI,
-    MONGO_DB_USER_EVENTS, MONGO_COLLECTION_USER_EVENTS,
+    MONGO_DB, MONGO_COLLECTION_USER_EVENTS,
 )
 
 spark = (
@@ -27,7 +27,7 @@ delta = spark.read.format("delta").load(DELTA_PATH_DAILY)
 #why grouping again: delta stores daily engagemnt => ALD needs one row per user = we sum across days
 # rating: sum(engagemnt) per user_id + episoded_id
 ratings = (
-    delta.groupBy("user_id","new_episode_id")
+    delta.groupBy("user_id","episode_id")
     .agg(F.sum("engagement").alias("engagement"))
     .filter(F.col("engagement") > MIN_ENGAGEMENT) #removes weak signals
 )
@@ -35,7 +35,7 @@ ratings = (
 # -------- 2) Index string ids -> integer ids for ALS --------------------
 #ALS cannot handle strings IDs = convert to idx
 user_indexer   = StringIndexer(inputCol="user_id",   outputCol="user_idx", handleInvalid="skip")
-item_indexer   = StringIndexer(inputCol="new_episode_id",outputCol="item_idx", handleInvalid="skip")
+item_indexer   = StringIndexer(inputCol="episode_id",outputCol="item_idx", handleInvalid="skip")
 
 pipeline = Pipeline(stages=[user_indexer, item_indexer])
 fitted  = pipeline.fit(ratings)
@@ -43,7 +43,7 @@ data    = fitted.transform(ratings)
 
 # Save the id maps to decode recs later (important!)
 users_map = (data.select("user_id","user_idx").dropDuplicates())
-items_map = (data.select("new_episode_id","item_idx").dropDuplicates())
+items_map = (data.select("episode_id","item_idx").dropDuplicates())
 
 # -------- 3) Train ALS (implicit feedback) ------------------------------
 als = ALS(
@@ -80,7 +80,7 @@ user_recs = (
     )
     .join(users_map, "user_idx")
     .join(items_map, "item_idx")
-    .select("user_id","new_episode_id","als_score")
+    .select("user_id","episode_id","als_score")
 )
 
 # Save to Mongo 
@@ -88,7 +88,7 @@ user_recs = (
     .format("mongo")
     .mode("overwrite")
     .option("uri", MONGO_URI)
-    .option("database", MONGO_DB_USER_EVENTS)
+    .option("database", MONGO_DB)
     .option("collection", MONGO_COLLECTION_USER_EVENTS)
     .save()
 )
