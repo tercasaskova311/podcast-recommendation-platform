@@ -11,10 +11,11 @@ from spark.config.settings import (
     MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID_FIELD,
     NUM_USERS, MIN_EPS, MAX_EPS,
     EPISODE_LIMIT, EPISODE_SAMPLE_N,
+
 )
 
 # Allow quick env overrides, but default to settings.py
-BROKER = os.getenv("KAFKA_URL", KAFKA_URL)
+KAFKA = os.getenv("KAFKA_URL", KAFKA_URL)
 TOPIC  = os.getenv("TOPIC_USER_EVENTS_STREAMING", TOPIC_USER_EVENTS_STREAMING)
 
 EP_COLL  = MONGO_COLLECTION
@@ -23,7 +24,7 @@ EP_FIELD = EPISODE_ID_FIELD
 
 # ---------- Globals ----------
 fake = Faker()
-p = Producer({"bootstrap.servers": BROKER})
+p = Producer({"bootstrap.servers": KAFKA})
 
 EVENTS = ["pause","like","skip","rate","complete"]
 
@@ -31,7 +32,7 @@ EVENTS = ["pause","like","skip","rate","complete"]
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-def fetch_episode_ids_from_mongo(limit: int = 0, sample_n: int = 0) -> List[str]:
+def fetch_episode_ids_from_mongo(limit: int = EPISODE_LIMIT, sample_n: int = EPISODE_SAMPLE_N) -> List[str]:
     """
     Fetch all episode_ids from Mongo (no filtering).
     - limit: cap the number of IDs pulled from Mongo (0 = no limit)
@@ -57,13 +58,18 @@ def fetch_episode_ids_from_mongo(limit: int = 0, sample_n: int = 0) -> List[str]
         print(f"[WARN] Mongo fetch failed: {e}")
         return []
 
-
-def generate_events(episodes: List[str], num_users=300, min_eps=1, max_eps=5) -> None:
+def generate_events(
+    episodes: List[str],
+    num_users: int = NUM_USERS,
+    min_eps: int = MIN_EPS,
+    max_eps: int = MAX_EPS
+) -> None:
     if not episodes:
         print("[ERROR] No episode_ids available to generate events.")
         sys.exit(1)
 
-    user_ids = [str(uuid.uuid4()) for _ in range(num_users)]
+
+    user_ids = [str(uuid.uuid4()) for _ in range(NUM_USERS)]
 
     for uid in user_ids:
         device = random.choice(["ios","android","web"])
@@ -76,7 +82,7 @@ def generate_events(episodes: List[str], num_users=300, min_eps=1, max_eps=5) ->
                 "event_id": str(uuid.uuid4()),
                 "ts": now_utc(),                # ISO8601
                 "user_id": uid,
-                "new_episode_id": ep,
+                EP_FIELD: ep,
                 "event": e,                     # one action per message
                 "device": device
             }

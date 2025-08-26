@@ -7,14 +7,14 @@ from delta.tables import DeltaTable
 
 from spark.config.settings import (
     DELTA_PATH_DAILY,
-    ALS_MODEL_PATH, ALS_INDEXERS_PATH,
-    ALS_DELTA_PATH, ALS_ITEMITEM_PATH,
-    TOP_N, ALS_RANK, ALS_REG, ALS_MAX_ITER, ALS_ALPHA, MIN_ENGAGEMENT, MONGO_URI,
+    ALS_MODEL_PATH,TOP_N, ALS_RANK, ALS_REG, 
+    ALS_MAX_ITER, ALS_ALPHA, MIN_ENGAGEMENT, MONGO_URI,
+    MONGO_DB_USER_EVENTS, MONGO_COLLECTION_USER_EVENTS,
 )
 
 spark = (
     SparkSession.builder
-    .appName("ALS-Train-And-Score")
+    .appName("User-events-training")
     .config("spark.sql.session.timeZone","UTC")
     .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
@@ -62,6 +62,7 @@ als = ALS(
 
 model = als.fit(data)
 
+#overwriting Spark ML artifacts (model + indexers)
 model.write().overwrite().save(ALS_MODEL_PATH)
 fitted.write().overwrite().save(ALS_MODEL_PATH + "_indexers")
 
@@ -88,8 +89,8 @@ user_recs = (
     .format("mongo")
     .mode("overwrite")
     .option("uri", MONGO_URI)
-    .option("database", "recommendations")
-    .option("collection", "als_top_n")
+    .option("database", MONGO_DB_USER_EVENTS)
+    .option("collection", MONGO_COLLECTION_USER_EVENTS)
     .save()
 )
 
