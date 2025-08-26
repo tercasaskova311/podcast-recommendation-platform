@@ -25,15 +25,12 @@ with DAG(
             "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
             "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
             "spark.sql.session.timeZone": "UTC",
-            "spark.driver.memory": "4g",
+            "spark.driver.memory": "6g",
+            "spark.driver.memoryOverhead": "2g",
         },
         env_vars={
-            #'PYTHONPATH': '/opt/project',
-            #'JAVA_HOME': '/usr/lib/jvm/java-17-openjdk-amd64'
             "SPARK_SUBMIT_MODE": "1",          # tells get_spark() not to set master/jars
-            "TRANSFORMERS_CACHE": "/models/hf",
-            "HF_HOME": "/models/hf",
-            # plus MONGO_URI / DELTA paths if you use env for those
+            "PYTHONPATH": "/opt/project"
         },
         verbose=True,
     )

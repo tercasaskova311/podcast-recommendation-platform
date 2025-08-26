@@ -45,22 +45,23 @@ services:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB_AIRFLOW}
       - PYTHONPATH=/opt/project
-      - TRANSFORMERS_CACHE=/models/hf
-      - HF_HOME=/models/hf
+      - HF_HOME=/opt/airflow/.cache/huggingface
+      - TRANSFORMERS_CACHE=/opt/airflow/.cache/huggingface
     env_file:
       - ../../.env.development
-    mem_limit: 6g            # hard cap; raise if you still see -9 kills
-    mem_reservation: 2g      # soft reservation; useful under memory pressure
+    mem_limit: 10g            # hard cap; raise if you still see -9 kills
+    mem_reservation: 4g      # soft reservation; useful under memory pressure
     cpus: "2.0"              # throttle to 2 vCPUs (or raise if you want more speed)
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/airflow/dags:/opt/airflow/dags
       - ${PWD}/airflow/config:/opt/airflow/config
       - ${PWD}/data:/data
-      - models-cache:/models
+      - ${PWD}/.hf-cache:/opt/airflow/.cache/huggingface
     command: scheduler
     networks:
       - kafka-net
+
 
   airflow-init:
     image: ${AIRFLOW_IMAGE_NAME}:${AIRFLOW_IMAGE_TAG}

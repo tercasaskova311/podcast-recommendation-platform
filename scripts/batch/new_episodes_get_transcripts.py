@@ -180,6 +180,7 @@ def commit_offset_for_eid(
     attempt = 0
     while True:
         try:
+            consumer.poll(0)
             consumer.commit(payload)
             return
         except (CommitFailedError, RebalanceInProgressError):

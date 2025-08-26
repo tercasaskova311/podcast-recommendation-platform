@@ -14,27 +14,28 @@ from delta.tables import DeltaTable
 from sentence_transformers import SentenceTransformer
 
 from spark.util.common import get_spark
-from util.delta_io import ensure_table    
+from spark.util.delta import _ensure_table as ensure_table    
 
 
 from config.settings import (
     DELTA_PATH_TRANSCRIPTS, DELTA_PATH_VECTORS, DELTA_PATH_SIMILARITIES,
     MONGO_URI, MONGO_DB, MONGO_COLLECTION_SIMILARITIES
 )
-BATCH_DATE = os.getenv("BATCH_DATE")#where does this take the value??
 
 # Model + embedding config
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 OVERLAP = 32
 SAFETY_MARGIN = 8
 TOP_K = 3
-BATCH_SIZE = 64
+BATCH_SIZE = 8
 DEVICE = "cpu"
 
 # Control flags
 RECOMPUTE_ALL = False
 WITHIN_BATCH_IF_EMPTY = True
+BATCH_DATE = ""
+
 
 def log(msg: str, level: str = "INFO") -> None:
     print(f"[{level}] {msg}")
@@ -80,15 +81,17 @@ def embed_long_document(
     safety_margin: int,
     batch_size: int
 ):
-    chunks = chunk_text_by_tokens(text, model.tokenizer, max_tokens, overlap, safety_margin)
+    
+    eff_max = min(int(getattr(model, "max_seq_length", max_tokens)), max_tokens)
+    chunks = chunk_text_by_tokens(text, model.tokenizer, eff_max, overlap, safety_margin)
     if not chunks:
-        return None
+         return None
 
     # Token counts per chunk (as weights)
-    tok_counts = [len(model.tokenizer(c, add_special_tokens=True)["input_ids"]) for c in chunks]
-
+    tok_counts = [len(model.tokenizer(c, add_special_tokens=True, truncation=True, max_length=eff_max).get("input_ids", [])) for c in chunks]
+    
     # Get chunk embeddings in batches; already L2-normalized per chunk
-    embs = model.encode(chunks, batch_size=batch_size, normalize_embeddings=True)
+    embs = model.encode(chunks, batch_size=batch_size, normalize_embeddings=True, show_progress_bar=False)
     embs = np.asarray(embs, dtype="float32")
 
     # Token-length weighted mean on the hypersphere
@@ -124,15 +127,18 @@ def compute_topk_pairs(
     else:
         log("[WARN] No historical vectors present. Skipping similarities.")
 
+
     sc = spark.sparkContext
-    sc.broadcast(H_ids)
-    sc.broadcast(H)
+    bc_H_ids = sc.broadcast(H_ids)
+    bc_H = sc.broadcast(H)
     K = TOP_K
 
-    def part(rows: Iterable):
+    def part(rows):
         import numpy as _np
+        H_local = bc_H.value
+        H_ids_local = bc_H_ids.value
         for r in rows:
-            if H.shape[0] == 0:
+            if H_local.shape[0] == 0:
                 continue
             qid = r["episode_id"]
             x = _np.asarray(r["embedding"], dtype=_np.float32)
@@ -140,16 +146,17 @@ def compute_topk_pairs(
             if n == 0:
                 continue
             x = x / n
-            sims = H.dot(x)  # cosine similarity
-            k = min(K, sims.shape[0])
+            sims = H_local.dot(x)
+            k = min(TOP_K, sims.shape[0])
             if k <= 0:
                 continue
             idx = _np.argpartition(-sims, k-1)[:k]
             idx = idx[_np.argsort(-sims[idx])]
-            for rank, j in enumerate(idx, start=1):     # <-- rank 1..k
-                yield (qid, str(H_ids[j]), float(sims[j]), int(rank), int(K))
+            for _rank, j in enumerate(idx, start=1):
+                # new_episode_id, historical_episode_id, similarity, k (param TOP_K)
+                yield (qid, str(H_ids_local[j]), float(sims[j]), int(TOP_K))
 
-    schema = ("new_episode_id string, historical_episode_id string, similarity double, rank int, top_k int")
+    schema = "new_episode_id string, historical_episode_id string, similarity double, k int"
     pairs = spark.createDataFrame(
         new_vec_df.select("episode_id","embedding").rdd.mapPartitions(part), schema
     )
@@ -184,7 +191,11 @@ def run_pipeline() -> None:
             done = spark.createDataFrame([], "episode_id string")
 
 # 3) Pending = transcripts \ done
-    base = transcripts.select("episode_id", "transcript", *([ "date" ] if "date" in transcripts.columns else []))
+    base = transcripts.select(
+        F.col("episode_id").cast("string").alias("episode_id"),
+        "transcript",
+        *(["date"] if "date" in transcripts.columns else [])
+    )
     pending = base.join(done, on="episode_id", how="left_anti")
 
     if BATCH_DATE and "date" in pending.columns:
@@ -201,9 +212,11 @@ def run_pipeline() -> None:
     dates = pdf["date"].astype(str).tolist() if "date" in pdf.columns else [None] * len(ep_ids)
 
     # Load embedding model
-    model = SentenceTransformer(MODEL_NAME, device=DEVICE)
-    tok_ceiling = getattr(model.tokenizer, "model_max_length", MAX_TOKENS) or MAX_TOKENS
-    model.max_seq_length = min(MAX_TOKENS, tok_ceiling)
+    cache_dir = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE")
+    model = SentenceTransformer(MODEL_NAME, device=DEVICE, cache_folder=cache_dir)
+    
+    # Enforce the real model limit (MiniLM-L6-v2 is 256)
+    model.max_seq_length = min(int(getattr(model, "max_seq_length", MAX_TOKENS)), MAX_TOKENS)
 
     embedding_dim = model.get_sentence_embedding_dimension()
 

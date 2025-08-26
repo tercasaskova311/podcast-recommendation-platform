@@ -5,6 +5,8 @@ USER root
 # Copy the requirements.txt into the image
 COPY ./requirements.txt /
 
+RUN mkdir -p /opt/airflow/.cache/huggingface && chown -R airflow: /opt/airflow/.cache
+
 # Installa Java and all packages
 RUN apt-get update && \
     apt-get install -y openjdk-17-jdk curl ca-certificates unzip git wget ffmpeg && \
@@ -30,8 +32,9 @@ ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$SPARK_HOME/bin
 ENV PYSPARK_PYTHON=python
 # Cache for models (sentence-transformers)
-ENV TRANSFORMERS_CACHE=/models/hf
-ENV HF_HOME=/models/hf
+ENV HF_HOME=/opt/airflow/.cache/huggingface
+# (Optional) keep older libs happy
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/airflow/.cache/huggingface
 
 USER airflow
 

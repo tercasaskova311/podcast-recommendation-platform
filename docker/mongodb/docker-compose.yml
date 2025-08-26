@@ -12,7 +12,8 @@ services:
       MONGO_INITDB_DATABASE: ${MONGO_DB}
     volumes:
       - mongo_data:/data/db
-
+    networks:
+      - kafka-net
   mongo-express:
     image: mongo-express:1.0.2
     container_name: mongo-express
@@ -24,6 +25,11 @@ services:
       ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
     depends_on:
       - mongodb
-
+    networks:
+      - kafka-net
 volumes:
   mongo_data:
+
+networks:
+  kafka-net:
+    external: true
