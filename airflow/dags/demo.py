@@ -1,10 +1,11 @@
 
 from airflow import DAG
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.bash import BashOperator
 from airflow.utils.dates import days_ago
 import os
 
-SPARK_URL= os.getenv("SPARK_URL")
+from config.settings import SPARK_URL
 
 with DAG('demo',
         schedule_interval=None,
@@ -13,14 +14,33 @@ with DAG('demo',
         tags=['batch']
 ) as dag:
 
-    seed_kafka = BashOperator(
-        task_id='seed_kafka',
-        bash_command='python /opt/project/scripts/demo/seed_kafka.py',
-    )
-
+    #LOAD SOME SAMPLE DATA IN DELTA LAKE
     load_delta = BashOperator(
         task_id='load_delta',
         bash_command='python /opt/project/scripts/demo/load_delta.py',
     )
 
-    seed_kafka >> load_delta # >> start_simulation_code
+    #PROCESS THEM AND STORE THE SIMILARITIES IN MONGO 
+    analyze = SparkSubmitOperator(
+        task_id="analyze",
+        application="/opt/project/spark/pipelines/analyze_transcripts_pipeline.py",
+        name="analyze-transcripts",
+        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
+        conf={
+            "spark.master": SPARK_URL,
+            "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
+            "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+            "spark.sql.session.timeZone": "UTC",
+            "spark.driver.memory": "6g",
+            "spark.driver.memoryOverhead": "2g",
+        },
+        env_vars={
+            "SPARK_SUBMIT_MODE": "1",          # tells get_spark() not to set master/jars
+            "PYTHONPATH": "/opt/project"
+        },
+        verbose=True,
+    )
+
+    #START USERS' SIMULATION EVENTS
+
+    load_delta # process them  >> start_simulation_code

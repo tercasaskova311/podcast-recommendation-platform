@@ -1,3 +1,1 @@
-new_episodes_transcript_download_interval: "@hourly"  # Main trigger time
-summary_interval: "@hourly"
-analyze_transcripts: "@hourly"
+new_episodes_interval: "@hourly"  # Trigger new episodes processing pipeline

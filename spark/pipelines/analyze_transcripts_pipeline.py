@@ -6,9 +6,10 @@ import os, datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 from pyspark.sql import functions as F
-from pyspark.sql.functions import col, lit
+from pyspark.sql.functions import col, lit, length, coalesce, trim
 from pyspark.sql.types import DataType
 from pyspark.sql import DataFrame, SparkSession
+
 from pyspark.errors import AnalysisException
 from delta.tables import DeltaTable
 from sentence_transformers import SentenceTransformer
@@ -174,6 +175,13 @@ def run_pipeline() -> None:
 
     # 1) Load transcripts Delta table
     transcripts = spark.read.format("delta").load(DELTA_PATH_TRANSCRIPTS)
+
+    # Basic hygiene: trim, drop empties and nulls
+    transcripts = (transcripts
+        .withColumn("transcript", trim(coalesce(col("transcript"), lit(''))))
+        .filter(length(col("transcript")) > 0)
+    )
+
     required_cols = {"episode_id", "transcript"}
     missing = required_cols - set(transcripts.columns)
     if missing:
@@ -192,7 +200,7 @@ def run_pipeline() -> None:
         except AnalysisException:
             done = spark.createDataFrame([], "episode_id string")
 
-# 3) Pending = transcripts \ done
+    # 3) Pending = transcripts \ done
     base = transcripts.select(
         F.col("episode_id").cast("string").alias("episode_id"),
         "transcript",
@@ -235,6 +243,13 @@ def run_pipeline() -> None:
                 .withColumn("created_at", F.current_timestamp())
                 .persist(StorageLevel.DISK_ONLY))  # avoid caching in RAM
     
+    log("[DEBUG] new_vec_df schema: " + new_vec_df.schema.simpleString())
+    try:
+        existing = spark.read.format("delta").load(DELTA_PATH_VECTORS)
+        log("[DEBUG] existing vectors schema: " + existing.schema.simpleString())
+    except Exception as e:
+        log(f"[DEBUG] vectors table not readable yet: {e}")
+
     log(f"new_vec_df count = {new_vec_df.count()}")
 
     # Ensure schema exists for vectors and similarities

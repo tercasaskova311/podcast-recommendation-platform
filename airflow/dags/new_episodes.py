@@ -1,20 +1,35 @@
 from airflow import DAG
-from airflow.utils.dates import days_ago
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from config.settings import SPARK_URL
+from airflow.operators.bash import BashOperator
+from airflow.utils.dates import days_ago
 import yaml
+
+from config.settings import SPARK_URL
 
 with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
 with DAG(
-    dag_id='debug_analyze_transcripts',
+    dag_id='new_episodes',
     start_date = days_ago(1),
     schedule_interval=config['new_episodes_interval'],
     catchup=False,
-    tags=['batch', 'debug'],
+    tags=['batch'],
 ) as dag:
     
+    #DOWNLOAD NEW ESPISODES AND SEND THEM TO KAFKA
+    new_episodes_download = BashOperator(
+        task_id='new_episodes_download',
+        bash_command='python3 /opt/project/scripts/batch/new_episodes_download.py',
+    )
+
+    #PROCESS TRANSCRIPTS AND STORE THEM IN DELTA
+    new_episodes_get_transcripts = BashOperator(
+        task_id='new_episodes_get_transcripts',
+        bash_command='python3 /opt/project/scripts/batch/new_episodes_get_transcripts.py'
+    )
+
+    #ANALYZE TRANSCRIPTS AND PROCESS SIMILARITIES
     analyze = SparkSubmitOperator(
         task_id="analyze",
         application="/opt/project/spark/pipelines/analyze_transcripts_pipeline.py",
@@ -35,5 +50,4 @@ with DAG(
         verbose=True,
     )
 
-
-    analyze
+    new_episodes_download >> new_episodes_get_transcripts >> analyze

@@ -7,11 +7,11 @@ with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
 with DAG(
-    dag_id='new_episodes_transcript_download',
+    dag_id='debug_new_episodes_transcript_download',
     start_date = days_ago(1),
-    schedule_interval=config['new_episodes_transcript_download_interval'],
+    schedule_interval=config['new_episodes_interval'],
     catchup=False,
-    tags=['batch', 'download'],
+    tags=['batch', 'debug'],
 ) as dag:
     
     new_episodes_download = BashOperator(
