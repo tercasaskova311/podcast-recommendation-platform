@@ -18,22 +18,22 @@ with DAG(
 ) as dag:
     
     #DOWNLOAD NEW ESPISODES AND SEND THEM TO KAFKA
-    new_episodes_download = BashOperator(
-        task_id='new_episodes_download',
+    download_metadata = BashOperator(
+        task_id='download_metadata',
         bash_command='python3 /opt/project/scripts/batch/new_episodes_download.py',
     )
 
     #PROCESS TRANSCRIPTS AND STORE THEM IN DELTA
-    new_episodes_get_transcripts = BashOperator(
-        task_id='new_episodes_get_transcripts',
+    get_transcripts = BashOperator(
+        task_id='get_transcripts',
         bash_command='python3 /opt/project/scripts/batch/new_episodes_get_transcripts.py'
     )
 
-    #ANALYZE TRANSCRIPTS AND PROCESS SIMILARITIES
-    analyze = SparkSubmitOperator(
-        task_id="analyze",
+    #PROCESS SIMILARITIES
+    process_similarities = SparkSubmitOperator(
+        task_id="process_similarities",
         application="/opt/project/spark/pipelines/analyze_transcripts_pipeline.py",
-        name="analyze-transcripts",
+        name="process_similarities",
         packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
         conf={
             "spark.master": SPARK_URL,
@@ -50,4 +50,4 @@ with DAG(
         verbose=True,
     )
 
-    new_episodes_download >> new_episodes_get_transcripts >> analyze
+    download_metadata >> get_transcripts >> process_similarities

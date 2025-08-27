@@ -330,10 +330,6 @@ def run_pipeline() -> None:
     log(f"vectors (model={MODEL_NAME}) total rows after merge = {post_vec_count}")
 
 
-    # 8) Mark episodes as processed
-    num_vectors = len(rows)
-    num_sims = out_df.count() if wrote_sims else 0
-
     # 9) Stop session
     spark.stop()
 
