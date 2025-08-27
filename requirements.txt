@@ -11,3 +11,11 @@ langdetect
 pyspark
 python-dotenv
 sentence-transformers
+
+delta-spark
+pydub
+
+ctranslate
+onnxruntime  #optional
+
+tqdm 

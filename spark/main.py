@@ -2,9 +2,9 @@ import argparse
 
 from pipelines import (
     download_transcripts_pipeline,
-    analyze_transctips_pipeline,
-    streaming_user_events_pipeline
+    analyze_transctips_pipeline
 )
+from scripts.streaming import streaming_user_events_pipeline
 
 parser = argparse.ArgumentParser()
 
