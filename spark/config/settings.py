@@ -12,8 +12,9 @@ TOPIC_USER_EVENTS_STREAMING = os.getenv("TOPIC_USER_EVENTS_STREAMING", "streamin
 # =============================================================================
 SPARK_URL               = os.getenv("SPARK_URL")
 
-DELTA_PATH_EPISODES     = os.getenv("DELTA_PATH_EPISODES")
-DELTA_PATH_TRANSCRIPTS  = os.getenv("DELTA_PATH_TRANSCRIPTS")
+
+DELTA_PATH_EPISODES = os.getenv("DELTA_PATH_EPISODES", "/data/delta/episodes")
+DELTA_PATH_TRANSCRIPTS = os.getenv("DELTA_PATH_TRANSCRIPTS", "/data/delta/transcripts")
 DELTA_PATH_VECTORS      = os.getenv("DELTA_PATH_VECTORS")
 DELTA_PATH_SIMILARITIES = os.getenv("DELTA_PATH_SIMILARITIES")
 

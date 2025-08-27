@@ -91,7 +91,7 @@ def process_batch(batch_df, batch_id):
     try:
         tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
     except Exception as e:
-        print(f"[INFO] Creating Silver Delta table: {e}")
+        print(f"[INFO] Creating Delta table: {e}")
         (daily.withColumn("created_at", F.current_timestamp())
               .withColumn("updated_at", F.current_timestamp())
               .write.format("delta")
