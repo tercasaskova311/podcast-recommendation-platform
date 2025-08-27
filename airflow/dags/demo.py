@@ -3,7 +3,6 @@ from airflow import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.bash import BashOperator
 from airflow.utils.dates import days_ago
-import os
 
 from config.settings import SPARK_URL
 
@@ -19,12 +18,12 @@ with DAG('demo',
         task_id='load_delta',
         bash_command='python /opt/project/scripts/demo/load_delta.py',
     )
-
-    #PROCESS THEM AND STORE THE SIMILARITIES IN MONGO 
-    analyze = SparkSubmitOperator(
-        task_id="analyze",
+       
+    #PROCESS SIMILARITIES
+    process_similarities = SparkSubmitOperator(
+        task_id="process_similarities",
         application="/opt/project/spark/pipelines/analyze_transcripts_pipeline.py",
-        name="analyze-transcripts",
+        name="process_similarities",
         packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
         conf={
             "spark.master": SPARK_URL,
@@ -41,6 +40,12 @@ with DAG('demo',
         verbose=True,
     )
 
-    #START USERS' SIMULATION EVENTS
+    #SIMULATE USER EVENTS
+    simulate_user_events = BashOperator(
+        task_id="simulate_user_events",
+        bash_command=(
+            "python3 /opt/project/scripts/streaming/user_events_simulation.py"
+        )
+    )
 
-    load_delta # process them  >> start_simulation_code
+    load_delta >> process_similarities >> simulate_user_events
