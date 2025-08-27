@@ -1,30 +1,29 @@
 # scripts/generate_user_events_to_kafka.py
-import os, json, uuid, random, sys
+import json, uuid, random, sys
 from datetime import datetime, timezone
 from typing import List
 from faker import Faker
-from confluent_kafka import Producer
+from kafka import KafkaProducer
 from pymongo import MongoClient
 
-from spark.config.settings import (
-    KAFKA_URL, TOPIC_USER_EVENTS_STREAMING,
-    MONGO_URI, MONGO_DB, MONGO_COLLECTION, EPISODE_ID,
-    NUM_USERS, MIN_EPS, MAX_EPS,
+from config.settings import (
+    KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, 
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION_SIMILARITIES,
+    NUM_USERS, MIN_EPS_PER_USER, MAX_EPS_PER_USER,
     EPISODE_LIMIT, EPISODE_SAMPLE_N,
 
 )
 
-# Allow quick env overrides, but default to settings.py
-KAFKA = os.getenv("KAFKA_URL", KAFKA_URL)
-TOPIC  = os.getenv("TOPIC_USER_EVENTS_STREAMING", TOPIC_USER_EVENTS_STREAMING)
-
-EP_COLL  = MONGO_COLLECTION
-EP_FIELD = EPISODE_ID
+EP_COLL  = MONGO_COLLECTION_SIMILARITIES
+EP_FIELD = "new_episode_id"
 
 
 # ---------- Globals ----------
 fake = Faker()
-p = Producer({"bootstrap.servers": KAFKA})
+producer = KafkaProducer(
+    bootstrap_servers=KAFKA_URL,
+    value_serializer=lambda v: json.dumps(v).encode("utf-8")
+)
 
 EVENTS = ["pause","like","skip","rate","complete"]
 
@@ -61,8 +60,8 @@ def fetch_episode_ids_from_mongo(limit: int = EPISODE_LIMIT, sample_n: int = EPI
 def generate_events(
     episodes: List[str],
     num_users: int = NUM_USERS,
-    min_eps: int = MIN_EPS,
-    max_eps: int = MAX_EPS
+    min_eps: int = MIN_EPS_PER_USER,
+    max_eps: int = MAX_EPS_PER_USER
 ) -> None:
     if not episodes:
         print("[ERROR] No episode_ids available to generate events.")
@@ -98,12 +97,12 @@ def generate_events(
                 msg["played_pct"] = 1.0
 
             # key by user for per-user ordering
-            p.produce(TOPIC, key=uid, value=json.dumps(msg).encode("utf-8"))
+            producer.send(TOPIC_USER_EVENTS_STREAMING, key=uid.encode("utf-8") if uid else None, value=msg)
 
-    p.flush()
+    producer.flush()
     print(f"[INFO] Sent events for {len(user_ids)} users over {len(episodes)} episodes.")
 
 # ---------- Main ----------
 if __name__ == "__main__":
     eps = fetch_episode_ids_from_mongo()
-    generate_events(eps, NUM_USERS, MIN_EPS, MAX_EPS)
+    generate_events(eps, NUM_USERS, MIN_EPS_PER_USER, MAX_EPS_PER_USER)
