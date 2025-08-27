@@ -21,3 +21,6 @@ sentence-transformers==3.0.1
 transformers==4.41.2
 scikit-learn==1.5.1
 pymongo==4.7.3
+
+faker>=19.0.0
+confluent-kafka>=2.1.1

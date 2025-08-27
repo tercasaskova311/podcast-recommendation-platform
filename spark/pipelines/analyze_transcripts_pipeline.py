@@ -1,6 +1,6 @@
 # analyze_transcripts_pipeline.py
 # Run with:  python -m spark.pipelines.analyze_transcripts_pipeline
-# Purpose:   Embed transcripts -> write vectors (Delta, idempotent) -> compute top-K similarities -> write to Mongo (or Delta fallback)
+# Purpose:   Embed transcripts -> write vectors (Delta, idempotent) -> compute top-K similarities -> write to Mongo
 
 import os, datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
