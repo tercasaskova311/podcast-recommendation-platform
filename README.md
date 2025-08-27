@@ -2,7 +2,7 @@
 
 This branch contains a basic dashboard to display the outputs of the podcast recommendation system. In the architecture diagram, this corresponds to "analytics on audience engagement".
 
-The dashboard is based on [Gradio](https://www.gradio.app/), a Python library to quickly build basic apps. It display a barplot of the top-k podcasts as ranked by user engagement and a table of live recommendations, which stores user IDs in one column and recommendation IDs in the other:
+The dashboard is based on [Gradio](https://www.gradio.app/), a Python library to quickly build basic apps. It display a barplot of the top-k podcasts as ranked by user engagement and a table of live recommendations, which stores user IDs in one column and recommendations in another.
 
 The code in `dashboard.py`: 
 - Gets trending episodes from `top_episodes.json`
