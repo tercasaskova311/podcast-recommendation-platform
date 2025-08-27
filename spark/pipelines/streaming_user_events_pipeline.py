@@ -2,8 +2,8 @@ from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import *
 from delta.tables import DeltaTable
 
-from spark.config.settings import (
-    KAFKA_SERVERS, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
+from config.settings import (
+    KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
     USER_EVENT_STREAM,
     LIKE_W, COMPLETE_W, SKIP_W, PAUSE_SEC_CAP
 )
@@ -37,7 +37,7 @@ schema = StructType([
 # ----------------- Read Kafka Stream -----------------
 raw = (
     spark.readStream.format("kafka")
-    .option("kafka.bootstrap.servers", KAFKA_SERVERS)
+    .option("kafka.bootstrap.servers", KAFKA_URL)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
     .option("startingOffsets", "latest") #start from latest offsets
     .option("failOnDataLoss", "false")

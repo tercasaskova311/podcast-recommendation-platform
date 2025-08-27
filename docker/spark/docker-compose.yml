@@ -33,28 +33,26 @@ services:
   spark-streaming:
     image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
     container_name: spark-streaming
-    # ENTRYPOINT in your image should be ["spark-submit"]
-    command:
-    - "--master"
-    - "${SPARK_URL}"
-    - "--conf"
-    - "spark.sql.session.timeZone=UTC"
-    - "--conf"
-    - "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension"
-    - "--conf"
-    - "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
-    - "--packages"
-    - "${SPARK_PACKAGES}"
-    - "/opt/spark_jobs/pipelines/streaming_user_events_pipeline.py"
+    command: >
+      spark-submit
+      --master ${SPARK_URL}
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0
+      --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      --conf spark.sql.session.timeZone=UTC
+      /opt/project/spark_jobs/pipelines/streaming_user_events_pipeline.py
     environment:
       - PYSPARK_PYTHON=python3
-      - SPARK_SUBMIT_OPTS=-XX:+UseG1GC -Duser.timezone=UTC
     env_file:
       - ../../.env.development
     volumes:
-      - ./data:/data
-    depends_on: [spark-master, spark-worker-1]
-    networks: [kafka-net]
+      - ${PWD}:/opt/project
+      - ${PWD}/data:/data
+    depends_on:
+      - spark-master,
+      - spark-worker-1
+    networks:
+      - kafka-net
 
 networks:
   kafka-net:

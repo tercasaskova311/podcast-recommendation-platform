@@ -1,1 +1,2 @@
 new_episodes_interval: "@hourly"  # Trigger new episodes processing pipeline
+recommendation_interval: '*/10 * * * *' #Trigger recommendation scripts every 10 mins
