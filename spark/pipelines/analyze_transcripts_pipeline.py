@@ -109,15 +109,19 @@ def compute_topk_pairs(
     new_vec_df: DataFrame,
     hist_df: DataFrame,
     model_dim: int,
-) -> Tuple[DataFrame, bool]:
+    ) -> DataFrame:
 
-        # --- collect history without pandas ---
+    # If no history, optionally use the current batch itself
+    if hist_df.rdd.isEmpty() and WITHIN_BATCH_IF_EMPTY:
+        hist_df = new_vec_df.select("episode_id", "embedding")
+
+    # (Optional) cap how much history we broadcast
     limit_n = int(os.environ.get("SIM_HISTORY_LIMIT", "20000"))
     hist_df = hist_df.limit(limit_n)
 
-    rows_iter = hist_df.select("episode_id", "embedding").toLocalIterator()
+    # Build H (embeddings) and ids without pandas
     H_ids_list, H_list = [], []
-    for r in rows_iter:
+    for r in hist_df.select("episode_id", "embedding").toLocalIterator():
         H_ids_list.append(str(r["episode_id"]))
         H_list.append(np.asarray(r["embedding"], dtype="float32"))
 
@@ -129,16 +133,9 @@ def compute_topk_pairs(
 
     H_ids = np.asarray(H_ids_list, dtype=object)
 
-    if H.shape[0]:
-        H /= (np.linalg.norm(H, axis=1, keepdims=True) + 1e-8)
-    else:
-        log("[WARN] No historical vectors present. Skipping similarities.")
-
-
     sc = spark.sparkContext
     bc_H_ids = sc.broadcast(H_ids)
     bc_H = sc.broadcast(H)
-    K = TOP_K
 
     def part(rows):
         import numpy as _np
@@ -159,15 +156,13 @@ def compute_topk_pairs(
                 continue
             idx = _np.argpartition(-sims, k-1)[:k]
             idx = idx[_np.argsort(-sims[idx])]
-            for _rank, j in enumerate(idx, start=1):
-                # new_episode_id, historical_episode_id, similarity, k (param TOP_K)
+            for j in idx:
                 yield (qid, str(H_ids_local[j]), float(sims[j]), int(TOP_K))
 
     schema = "new_episode_id string, historical_episode_id string, similarity double, k int"
-    pairs = spark.createDataFrame(
-        new_vec_df.select("episode_id","embedding").rdd.mapPartitions(part), schema
+    return spark.createDataFrame(
+        new_vec_df.select("episode_id", "embedding").rdd.mapPartitions(part), schema
     )
-    return pairs
 
 
 # ---------------- PIPELINE ----------------
@@ -211,37 +206,6 @@ def run_pipeline() -> None:
     if pending.rdd.isEmpty():
         spark.stop()
         return
-    
-    # 3) Embed transcripts into vector space (on driver)
-
-
-
-    # pdf = pending.toPandas()
-    # ep_ids = pdf["episode_id"].astype(str).tolist()
-    # texts = pdf["transcript"].fillna("").tolist()
-    # dates = pdf["date"].astype(str).tolist() if "date" in pdf.columns else [None] * len(ep_ids)
-
-    # # Load embedding model
-    # cache_dir = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE")
-    # model = SentenceTransformer(MODEL_NAME, device=DEVICE, cache_folder=cache_dir)
-    
-    # # Enforce the real model limit (MiniLM-L6-v2 is 256)
-    # model.max_seq_length = min(int(getattr(model, "max_seq_length", MAX_TOKENS)), MAX_TOKENS)
-
-    # embedding_dim = model.get_sentence_embedding_dimension()
-
-    # vecs = []
-    # for t in texts:
-    #     v = embed_long_document(t, model, MAX_TOKENS, OVERLAP, SAFETY_MARGIN, BATCH_SIZE)
-    #     vecs.append(v if v is not None else np.zeros(embedding_dim, dtype="float32"))
-
-
-    # rows = [(ep_ids[i], dates[i], vecs[i].tolist(), MODEL_NAME) for i in range(len(ep_ids))]
-    # schema = "episode_id string, date string, embedding array<float>, model string"
-    # new_vec_df = (spark.createDataFrame(rows, schema)
-    #             .withColumn("created_at", F.current_timestamp())
-    #             .cache())
-    
 
     from pyspark import StorageLevel
 
@@ -270,6 +234,8 @@ def run_pipeline() -> None:
     new_vec_df = (spark.createDataFrame(rows, schema)
                 .withColumn("created_at", F.current_timestamp())
                 .persist(StorageLevel.DISK_ONLY))  # avoid caching in RAM
+    
+    log(f"new_vec_df count = {new_vec_df.count()}")
 
     # Ensure schema exists for vectors and similarities
     ensure_table(spark, DELTA_PATH_VECTORS, new_vec_df)
@@ -295,6 +261,8 @@ def run_pipeline() -> None:
 
     # 5) KNN similarity computation
     pairs_df = compute_topk_pairs(spark, new_vec_df, hist_df, embedding_dim)
+    log(f"pairs_df count = {pairs_df.count()}")
+
 
     # 6) Format similarities output  (content-only)
     out_df = (
@@ -305,15 +273,17 @@ def run_pipeline() -> None:
         .withColumn("created_at", F.current_timestamp())  # TIMESTAMP
         .dropDuplicates(["new_episode_id", "historical_episode_id", "model"])
     )
+    log(f"out_df count (to write) = {out_df.count()}")
 
 
-# 6a) Write to MongoDB (append-only, time-series policy)
+
+    # 6a) Write to MongoDB (append-only, time-series policy)
     wrote_sims = False
     try:
         (out_df.write
         .format("mongodb")
         .mode("append")
-        .option("uri", MONGO_URI)
+        .option("spark.mongodb.write.connection.uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION_SIMILARITIES)
         .save())
@@ -329,9 +299,10 @@ def run_pipeline() -> None:
             wrote_sims = True
         except Exception as e2:
             log(f"[ERROR] Delta fallback also failed: {e2}")
+    log(f"wrote_sims = {wrote_sims}")
 
 
-# 7) Store new embeddings to Delta
+    # 7) Store new embeddings to Delta
     vec_target = DeltaTable.forPath(spark, DELTA_PATH_VECTORS)
     (vec_target.alias("t")
     .merge(new_vec_df.alias("s"),
@@ -339,12 +310,16 @@ def run_pipeline() -> None:
     .whenMatchedUpdateAll()
     .whenNotMatchedInsertAll()
     .execute())
+    
+    post_vec_count = spark.read.format("delta").load(DELTA_PATH_VECTORS).where(col("model")==MODEL_NAME).count()
+    log(f"vectors (model={MODEL_NAME}) total rows after merge = {post_vec_count}")
 
-# 8) Mark episodes as processed
+
+    # 8) Mark episodes as processed
     num_vectors = len(rows)
     num_sims = out_df.count() if wrote_sims else 0
 
-# 9) Stop session
+    # 9) Stop session
     spark.stop()
 
 if __name__ == "__main__":
