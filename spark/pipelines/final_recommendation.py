@@ -13,27 +13,23 @@ from spark.config.settings import (
     MONGO_COLLECTION_FINAL_RECS, 
 )
 
-
-EXTRA_PKGS = os.getenv("SPARK_PACKAGES", "")  # e.g., Kafka
-
 spark = (
     SparkSession.builder
     .appName("Final-Recommendations")
     .config("spark.sql.session.timeZone", "UTC")
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    # Mongo connector (legacy) optional global config (handy)
+    .config("spark.mongodb.input.uri", MONGO_URI)   # includes db in path
+    .config("spark.mongodb.output.uri", MONGO_URI)
     .getOrCreate()
 )
 
-# --- 1) Read ALS seeds (user_id, episode_id, als_score) ---
-als = (
-    spark.read.format("mongo")
-        .option("uri", MONGO_URI)
-        .option("database", MONGO_DB)
-        .option("collection", MONGO_COLLECTION_USER_EVENTS)
-        .load()
-        .select("user_id", "episode_id", "als_score")
-)
+als = (spark.read.format("mongo")
+       .option("uri", MONGO_URI)          # keep it explicit
+       .option("database", MONGO_DB)      # logical db for collections
+       .option("collection", MONGO_COLLECTION_USER_EVENTS)
+       .load()
+       .select("user_id", "episode_id", "als_score"))
+
 
 # --- 2) Read content neighbors (episode_id, similar_episode_id, similarity) ---
 sim = (
