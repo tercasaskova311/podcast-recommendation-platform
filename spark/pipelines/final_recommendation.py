@@ -22,46 +22,47 @@ spark = (
     .getOrCreate()
 )
 
-als = (spark.read.format("mongo")
-       .option("uri", MONGO_URI)          
-       .option("database", MONGO_DB)      
-       .option("collection", MONGO_COLLECTION_USER_EVENTS)
-       .load()
-       .select("user_id", "episode_id", "als_score"))
+# --- 1) ALS seeds (user_id, episode_id, als_score) ---
+als = (
+    spark.read.format("mongo")
+        .option("uri", MONGO_URI)
+        .option("database", MONGO_DB)
+        .option("collection", MONGO_COLLECTION_USER_EVENTS)
+        .load()
+        .select("user_id", "episode_id", "als_score")
+)
 
-
-# --- 2) Read content neighbors (episode_id, similar_episode_id, similarity) ---
-# --- 2) Read content neighbors ---
+# --- 2) Content neighbors (episode_id, similar_episode_id, similarity) ---
+# Normalize names here so the rest of the pipeline is simple.
 sim = (
     spark.read.format("mongo")
         .option("uri", MONGO_URI)
         .option("database", MONGO_DB)
-        .option("collection", MONGO_COLLECTION)   # the pairs collection
+        .option("collection", MONGO_COLLECTION)
         .load()
         .select(
             F.col("new_episode_id").alias("episode_id"),
-            F.col("historical_episode_id").alias("historical_episode_id"),
-            F.col("similarity").alias("similarity")
+            F.col("historical_episode_id").alias("similar_episode_id"),
+            F.col("similarity").cast("double").alias("similarity")
         )
 )
-# --- 3) Blend: α·ALS + (1-α)·similarity ---
+
 alpha = float(os.getenv("HYBRID_ALPHA", "0.7"))
 
-
-# --- 3) Blend ---
+# --- 3) Blend: α·ALS + (1-α)·similarity ---
 hybrid_raw = (
     als.alias("a")
       .join(sim.alias("s"), F.col("a.episode_id") == F.col("s.episode_id"), "inner")
-      .where(F.col("a.episode_id") != F.col("s.historical_episode_id"))
+      .where(F.col("a.episode_id") != F.col("s.similar_episode_id"))  # avoid self-recs
       .select(
           F.col("a.user_id").alias("user_id"),
-          F.col("s.historical_episode_id").alias("recommended_episode_id"),
+          F.col("s.similar_episode_id").alias("recommended_episode_id"),
           (F.col("a.als_score") * F.lit(alpha) +
            F.col("s.similarity") * F.lit(1.0 - alpha)).alias("hybrid_score")
       )
 )
 
-# --- 4)   Top-N per user ---
+# --- 4) Dedup & Top-N per user ---
 hybrid = (
     hybrid_raw
     .groupBy("user_id", "recommended_episode_id")
@@ -80,11 +81,9 @@ final_recs = (
 (
     final_recs.write
     .format("mongo")
-    .mode(os.getenv("FINAL_RECS_WRITE_MODE", "overwrite"))  # or "append"
+    .mode("overwrite")  # or "append"
     .option("uri", MONGO_URI)
     .option("database", MONGO_DB)
     .option("collection", MONGO_COLLECTION_FINAL_RECS)
     .save()
 )
-
-spark.stop()
