@@ -87,11 +87,8 @@ user_recs = (
 (user_recs.write
     .format("mongodb")
     .mode("overwrite")
-    .option("uri", MONGO_URI)
+    .option("spark.mongodb.write.connection.uri", MONGO_URI)
     .option("database", MONGO_DB)
     .option("collection", MONGO_COLLECTION_USER_EVENTS)
     .save()
 )
-
-
-

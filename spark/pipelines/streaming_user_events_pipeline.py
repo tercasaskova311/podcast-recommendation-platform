@@ -138,7 +138,7 @@ q = (
     scored.writeStream
           .foreachBatch(process_batch)
           .option("checkpointLocation", USER_EVENT_STREAM)
-          .trigger(processingTime="20 seconds")    
+          .trigger(processingTime="30 seconds")    
           .start()
 )
 

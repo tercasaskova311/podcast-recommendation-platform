@@ -20,7 +20,7 @@ spark = get_spark('final-recommendation')
 # --- 1) ALS seeds (user_id, episode_id, als_score) ---
 als = (
     spark.read.format("mongodb")
-        .option("uri", MONGO_URI)
+        .option("spark.mongodb.read.connection.uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION_USER_EVENTS)
         .load()
@@ -31,7 +31,7 @@ als = (
 # Normalize names here so the rest of the pipeline is simple.
 sim = (
     spark.read.format("mongodb")
-        .option("uri", MONGO_URI)
+        .option("spark.mongodb.read.connection.uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION_SIMILARITIES)
         .load()
@@ -77,7 +77,7 @@ final_recs = (
     final_recs.write
     .format("mongodb")
     .mode("overwrite")  # or "append"
-    .option("uri", MONGO_URI)
+    .option("spark.mongodb.write.connection.uri", MONGO_URI)
     .option("database", MONGO_DB)
     .option("collection", MONGO_COLLECTION_FINAL_RECS)
     .save()

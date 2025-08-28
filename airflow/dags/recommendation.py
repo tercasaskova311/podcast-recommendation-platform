@@ -1,5 +1,5 @@
 from airflow import DAG
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.operators.bash import BashOperator
 from airflow.utils.dates import days_ago
 import yaml
 
@@ -14,30 +14,16 @@ with DAG(
     tags=['batch', 'user behaviour', 'content based'],
 ) as dag:
 
-    #PROCESS SIMILARITIES AMONG USER BEHAVIOUR
-    process_similarities = SparkSubmitOperator(
-        task_id="process_similarities",
-        application="/opt/project/spark/pipelines/training_user_events_pipeline.py",
-        name="process_similarities",
-        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
-        conf={
-            "spark.master": "local[*]"
-        },
-        env_vars={"PYTHONPATH": "/opt/project"},
-        verbose=True,
+    #PROCESS USER EVENTS, FINDING SIMILARITIES
+    process_users_events = BashOperator(
+        task_id='process_users_events',
+        bash_command='python /opt/project/spark/pipelines/training_user_events_pipeline.py',
     )
 
-    #PROCESS FINAL USER RECOMMENDATION
-    process_recommendation = SparkSubmitOperator(
-        task_id="process_recommendation",
-        application="/opt/project/spark/pipelines/final_recommendation.py",
-        name="process_recommendation",
-        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
-        conf={
-            "spark.master": "local[*]"
-        },
-        env_vars={"PYTHONPATH": "/opt/project"},
-        verbose=True,
+    #RETURN FINAL RACOMMENDATION TO USERS
+    user_recommendation = BashOperator(
+        task_id='user_recommendation',
+        bash_command='python /opt/project/spark/pipelines/final_recommendation.py',
     )
 
-    process_similarities >> process_recommendation
+    process_users_events >> user_recommendation
