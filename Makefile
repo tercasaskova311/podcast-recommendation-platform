@@ -138,4 +138,5 @@ init:
 	done
 	@make create-topics
 	@make status
+	@make restart
 

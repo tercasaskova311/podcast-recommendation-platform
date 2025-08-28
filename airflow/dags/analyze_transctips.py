@@ -18,6 +18,7 @@ with DAG(
         task_id="analyze",
         application="/opt/project/spark/pipelines/analyze_transcripts_pipeline.py",
         name="analyze-transcripts",
+        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
         conf={
             "spark.master": "local[*]",
             "spark.driver.memory": "6g",

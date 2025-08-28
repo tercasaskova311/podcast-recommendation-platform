@@ -14,7 +14,7 @@ from pyspark.errors import AnalysisException
 from delta.tables import DeltaTable
 from sentence_transformers import SentenceTransformer
 
-from spark.util.common import get_spark
+from spark.util.common import get_spark_airflow
 from spark.util.delta import _ensure_table as ensure_table    
 
 
@@ -169,12 +169,13 @@ def compute_topk_pairs(
 # ---------------- PIPELINE ----------------
 def run_pipeline() -> None:
     # Create session inside the function (Airflow imports the module; avoid heavy globals)
-    spark = get_spark("podcast-recs")
+    spark = get_spark_airflow("podcast-recs")
     spark.conf.set("spark.sql.session.timeZone", "UTC")
     spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
 
     # 1) Load transcripts Delta table
     transcripts = spark.read.format("delta").load(DELTA_PATH_TRANSCRIPTS)
+    print(transcripts)
 
     # Basic hygiene: trim, drop empties and nulls
     transcripts = (transcripts
@@ -211,6 +212,14 @@ def run_pipeline() -> None:
     if BATCH_DATE and "date" in pending.columns:
         pending = pending.filter(col("date") == lit(BATCH_DATE))
 
+    tc = transcripts.count()
+    dc = done.count() if 'done' in locals() else 0
+    pc = pending.count()
+    log(f"counts — transcripts={tc}, done={dc}, pending={pc}")
+    if pc == 0:
+        log("No pending transcripts to embed (nothing to do). Exiting.")
+        spark.stop()
+        return
     if pending.rdd.isEmpty():
         spark.stop()
         return
@@ -298,7 +307,7 @@ def run_pipeline() -> None:
         (out_df.write
         .format("mongodb")
         .mode("append")
-        .option("uri", MONGO_URI)
+        .option("spark.mongodb.write.connection.uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION_SIMILARITIES)
         .save())
