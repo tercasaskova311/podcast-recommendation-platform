@@ -17,7 +17,7 @@ services:
     container_name: spark-worker-1
     environment:
       - SPARK_MODE=worker
-      - SPARK_MASTER_URL=${SPARK_URL}
+      - SPARK_MASTER_URL=spark://spark-master:7077
 
     volumes:
       - ${PWD}/spark:/opt/spark_jobs
@@ -35,21 +35,20 @@ services:
     container_name: spark-streaming
     command: >
       spark-submit
-      --master ${SPARK_URL}
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0
-      --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
-      --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
-      --conf spark.sql.session.timeZone=UTC
-      /opt/project/spark_jobs/pipelines/streaming_user_events_pipeline.py
+      --master local[*]
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0
+      /opt/project/spark/pipelines/streaming_user_events_pipeline.py
     environment:
+      - PYTHONPATH=/opt/project
       - PYSPARK_PYTHON=python3
+      - SPARK_SUBMIT_OPTS=-XX:+UseG1GC -Duser.timezone=UTC
     env_file:
       - ../../.env.development
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/data:/data
     depends_on:
-      - spark-master,
+      - spark-master
       - spark-worker-1
     networks:
       - kafka-net

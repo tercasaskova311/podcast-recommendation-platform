@@ -78,7 +78,7 @@ services:
       - ${PWD}/scripts:/opt/scripts
     entrypoint: /bin/bash
     command: -c "airflow db init && airflow users create --username ${POSTGRES_USER} --password ${POSTGRES_PASSWORD} --firstname ${AIRFLOW_ADMIN_USER_FIRSTNAME} --lastname ${AIRFLOW_ADMIN_USER_LASTNAME} --role ${AIRFLOW_ADMIN_USER_ROLE} --email ${AIRFLOW_ADMIN_USER_EMAIL} &&
-        airflow connections add spark_default --conn-type spark --conn-host ${SPARK_URL}"
+        airflow connections add spark_default --conn-type spark --conn-host spark://spark-master:7077"
     networks:
       - kafka-net
 

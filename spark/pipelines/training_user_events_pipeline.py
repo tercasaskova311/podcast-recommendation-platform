@@ -4,21 +4,21 @@ from pyspark.ml.feature import StringIndexer
 from pyspark.ml import Pipeline
 from delta.tables import DeltaTable
 
-from spark.config.settings import (
+from spark.util.common import get_spark
+
+from config.settings import (
     DELTA_PATH_DAILY,
-    ALS_MODEL_PATH,TOP_N, ALS_RANK, ALS_REG, 
-    ALS_MAX_ITER, ALS_ALPHA, MIN_ENGAGEMENT, MONGO_URI,
-    MONGO_DB, MONGO_COLLECTION_USER_EVENTS,
+    ALS_MODEL_PATH, N_RECOMMENDATION_FOR_USER,
+    MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS,
 )
 
-spark = (
-    SparkSession.builder
-    .appName("User-events-training")
-    .config("spark.sql.session.timeZone","UTC")
-    .config("spark.sql.extensions","io.delta.sql.DeltaSparkSessionExtension")
-    .config("spark.sql.catalog.spark_catalog","org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    .getOrCreate()
-)
+ALS_RANK      = 64
+ALS_REG       = 0.08
+ALS_MAX_ITER  = 15
+ALS_ALPHA     = 40.0
+MIN_ENGAGEMENT= 1e-6
+
+spark = get_spark("user-events-training")
 
 # -------- 1) Load daily engagement per user per episode ----------
 #contains: user_id, new_episode_id, day, engagemnt, num_events, lst_ts, ...
@@ -67,7 +67,7 @@ fitted.write().overwrite().save(ALS_MODEL_PATH + "_indexers")
 
 
 # -------- 4) Top-N per user (decode ids) --------------------------------
-raw_user_recs = model.recommendForAllUsers(TOP_N)
+raw_user_recs = model.recommendForAllUsers(N_RECOMMENDATION_FOR_USER)
 #produce column: recommendations: [{"item_idx": 17, "rating": 4.8}, {"item_idx": 52, "rating": 4.5}, ...]
 #TOP N episodes personalized fro each user
 user_recs = (
@@ -85,7 +85,7 @@ user_recs = (
 
 # Save to Mongo 
 (user_recs.write
-    .format("mongo")
+    .format("mongodb")
     .mode("overwrite")
     .option("uri", MONGO_URI)
     .option("database", MONGO_DB)

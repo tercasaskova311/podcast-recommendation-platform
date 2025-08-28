@@ -4,19 +4,19 @@ from delta.tables import DeltaTable
 
 from config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
-    USER_EVENT_STREAM,
-    LIKE_W, COMPLETE_W, SKIP_W, PAUSE_SEC_CAP
+    USER_EVENT_STREAM
 )
+from spark.util.common import get_spark
+
+LIKE_W        = 3.0
+COMPLETE_W    = 2.0
+SKIP_W        = -1.0
+PAUSE_SEC_CAP = 600.0
+
+CONSUMER_GROUP_ID = 'user-events-streamer'
 
 # ----------------- Spark Session -----------------
-spark = (
-    SparkSession.builder
-    .appName("Streaming-user-events")
-    .config("spark.sql.session.timeZone", "UTC")
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    .getOrCreate()
-)
+spark = get_spark("Streaming-user-events")
 
 # ----------------- Schema -----------------
 # Describe the JSON in Kafka. 
@@ -39,17 +39,24 @@ raw = (
     spark.readStream.format("kafka")
     .option("kafka.bootstrap.servers", KAFKA_URL)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
-    .option("startingOffsets", "latest") #start from latest offsets
+    .option("kafka.group.id", CONSUMER_GROUP_ID)
+    .option("startingOffsets", "earliest") #start from latest offsets
     .option("failOnDataLoss", "false")
     .load()
 )
 
 # ----------------- Parse JSON + Dedup -----------------
+ts_ms = F.regexp_replace(
+    F.col("ts"),
+    r'\.(\d{3})\d+(?=(?:[+-]\d{2}:\d{2}|Z)$)',   # keep first 3 frac digits before timezone
+    r'.\1'
+)
+
 parsed = (
     raw.selectExpr("CAST(value AS STRING) AS json")
        .select(F.from_json("json", schema).alias("e"))
        .select("e.*")
-       .withColumn("ts", F.to_timestamp("ts"))
+        .withColumn("ts", F.to_timestamp(ts_ms, "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"))
        .withWatermark("ts", "2 hours")  # handle late events up to 2h
        .dropDuplicates(["event_id"])    # prevent double-counting
 )
@@ -95,6 +102,7 @@ def process_batch(batch_df, batch_id):
         (daily.withColumn("created_at", F.current_timestamp())
               .withColumn("updated_at", F.current_timestamp())
               .write.format("delta")
+              .partitionBy("day")
               .mode("overwrite")
               .save(DELTA_PATH_DAILY))
         tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)

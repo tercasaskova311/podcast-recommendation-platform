@@ -79,7 +79,7 @@ def generate_events(
 
             msg = {
                 "event_id": str(uuid.uuid4()),
-                "ts": now_utc(),                # ISO8601
+                "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                 "user_id": uid,
                 "episode_id": ep,
                 "event": e,                     # one action per message

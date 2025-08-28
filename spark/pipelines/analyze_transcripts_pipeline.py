@@ -298,7 +298,7 @@ def run_pipeline() -> None:
         (out_df.write
         .format("mongodb")
         .mode("append")
-        .option("spark.mongodb.write.connection.uri", MONGO_URI)
+        .option("uri", MONGO_URI)
         .option("database", MONGO_DB)
         .option("collection", MONGO_COLLECTION_SIMILARITIES)
         .save())

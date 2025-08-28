@@ -6,3 +6,4 @@ __pycache__
 whisper_env/
 transcripts/
 data/delta/*
+data/streaming/*
