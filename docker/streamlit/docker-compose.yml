@@ -1,0 +1,18 @@
+# docker-compose.yml
+services:
+  dashboard:
+    build: .
+    ports:
+      - "8504:8504"
+    environment:
+      MONGO_URI: "mongodb://admin:pass@mongodb:27017/?authSource=admin"
+      MONGO_DB: "podcasts"
+      MONGO_COLLECTION_FINAL_RECS: "final_recommendations"
+      # Delta paths inside the container (bind-mounted project)
+      DELTA_EVENTS_PATH: "/app/_delta/events"
+      DELTA_PATH_EPISODES: "/app/_delta/episodes"
+      # avoid AWS IMDS calls on laptops
+      AWS_EC2_METADATA_DISABLED: "true"
+    volumes:
+      - ./:/app
+    restart: unless-stopped

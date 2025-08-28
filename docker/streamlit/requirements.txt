@@ -1,0 +1,6 @@
+streamlit
+pymongo
+duckdb
+pandas
+pyarrow
+deltalake
