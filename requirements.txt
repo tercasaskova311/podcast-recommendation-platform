@@ -15,3 +15,5 @@ delta-spark==3.1.0
 streamlit==1.37.0
 pymongo==4.8.0
 pandas==2.2.2
+
+duckdb>=1.0.0
