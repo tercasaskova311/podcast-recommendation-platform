@@ -170,6 +170,9 @@ def compute_topk_pairs(
 def run_pipeline() -> None:
     # Create session inside the function (Airflow imports the module; avoid heavy globals)
     spark = get_spark_airflow("podcast-recs")
+    spark.conf.set("spark.executor.heartbeatInterval", "60s")
+    spark.conf.set("spark.network.timeout", "600s")
+    spark.conf.set("spark.rpc.askTimeout", "600s")
     spark.conf.set("spark.sql.session.timeZone", "UTC")
     spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
 
@@ -327,6 +330,9 @@ def run_pipeline() -> None:
 
 
     # 7) Store new embeddings to Delta
+    new_vec_df = new_vec_df.repartition(2, F.col("episode_id"))
+    log("Merging new vectors into Delta...")
+    
     vec_target = DeltaTable.forPath(spark, DELTA_PATH_VECTORS)
     (vec_target.alias("t")
     .merge(new_vec_df.alias("s"),
@@ -334,7 +340,9 @@ def run_pipeline() -> None:
     .whenMatchedUpdateAll()
     .whenNotMatchedInsertAll()
     .execute())
-    
+
+    log("Merge done.")
+
     post_vec_count = spark.read.format("delta").load(DELTA_PATH_VECTORS).where(col("model")==MODEL_NAME).count()
     log(f"vectors (model={MODEL_NAME}) total rows after merge = {post_vec_count}")
 

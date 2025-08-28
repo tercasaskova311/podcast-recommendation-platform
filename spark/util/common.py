@@ -62,6 +62,10 @@ def get_spark(app_name: str, extra_conf: Optional[Dict[str, Any]] = None) -> Spa
 
     # --- Delta + basics ---
     b = (b
+         .config("spark.executor.heartbeatInterval", "60s")
+         .config("spark.network.timeout", "600s")     # > 2 * heartbeatInterval
+         .config("spark.rpc.askTimeout", "600s")
+         .config("spark.sql.shuffle.partitions", "8")
          .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
          .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
          .config("spark.sql.session.timeZone", "UTC")

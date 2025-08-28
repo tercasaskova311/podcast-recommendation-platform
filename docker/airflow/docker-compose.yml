@@ -50,7 +50,7 @@ services:
       - ../../.env.development
     mem_limit: 10g            
     mem_reservation: 4g      
-    cpus: "2.0"            
+    cpus: 2.0            
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/airflow/dags:/opt/airflow/dags

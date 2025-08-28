@@ -78,6 +78,18 @@ scored = (
     .withColumn("day", F.to_date("ts"))
 )
 
+# Initialize Delta table if it doesn't exist
+try:
+    DeltaTable.forPath(spark, DELTA_PATH_DAILY)
+except Exception:
+    (spark.createDataFrame([], """
+        user_id string, episode_id string, day date,
+        engagement double, num_events long, last_ts timestamp,
+        created_at timestamp, updated_at timestamp
+    """)
+     .write.format("delta").partitionBy("day").mode("overwrite").save(DELTA_PATH_DAILY))
+    
+
 # ----------------- Process Each Micro-Batch -----------------
 def process_batch(batch_df, batch_id):
     if batch_df.rdd.isEmpty():
@@ -93,19 +105,7 @@ def process_batch(batch_df, batch_id):
     )
 
     spark = batch_df.sparkSession
-
-    # Initialize Delta table if it doesn't exist
-    try:
-        tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
-    except Exception as e:
-        print(f"[INFO] Creating Delta table: {e}")
-        (daily.withColumn("created_at", F.current_timestamp())
-              .withColumn("updated_at", F.current_timestamp())
-              .write.format("delta")
-              .partitionBy("day")
-              .mode("overwrite")
-              .save(DELTA_PATH_DAILY))
-        tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
+    tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
 
     # Merge new data into table (upsert)
     (
@@ -138,7 +138,7 @@ q = (
     scored.writeStream
           .foreachBatch(process_batch)
           .option("checkpointLocation", USER_EVENT_STREAM)
-          .trigger(processingTime="2 seconds")    
+          .trigger(processingTime="20 seconds")    
           .start()
 )
 
