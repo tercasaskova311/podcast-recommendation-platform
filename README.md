@@ -9,26 +9,27 @@ This project builds an end-to-end data pipeline to recommend podcast episodes to
 - Delivering real-time personalized recommendation for a podcasts episode
 
 ---
-## Project Structure
-
 root/
-├── _delta/ # Delta Lake tables (episodes, events)
-├── airflow/ # Apache Airflow config for DAG orchestration
+├── _delta/                # Delta Lake tables (episodes, events, history)
+├── airflow/               # Apache Airflow DAG orchestration configs
+│   └── dags/              # DAG definitions (pipelines, scheduling)
 ├── config/
-│ └── settings.py # General project settings
-├── data/
-├── docker/ # Docker-related configuration
-├── docs/ # Documentation & diagrams
-├── scripts/
-├── spark/ # Spark pipelines for large-scale processing
-│ ├── pipelines/
-├── demo/ # Demos or example runs
-├── dashboard.py # Interactive dashboard
-├── .env.development # Environment variables
-├── .gitignore
-├── Makefile # Dev shortcuts (build, test, run)
-├── requirements.txt
-└── README.md
+│   └── settings.py        # Centralized project settings
+├── data/                  # Raw & processed datasets (local staging area)
+├── docker/                # Docker build files & container configs
+├── docs/                  # Documentation, diagrams, and architecture notes
+├── scripts/               # Utility scripts (ETL jobs, helpers, maintenance)
+├── spark/                 # Spark jobs for distributed processing
+│   └── pipelines/         # Individual Spark pipeline definitions
+├── demo/                  # Example runs, demo workflows, or notebooks
+├── dashboard.py           # Interactive dashboard (entrypoint for UI/analytics)
+│
+├── .env.development       # Environment variables (local dev)
+├── .gitignore             # Ignore rules for Git
+├── Makefile               # Developer shortcuts (build, test, run, deploy)
+├── requirements.txt       # Python dependencies
+└── README.md              # Project documentation (you are here!)
+
 
 ---
 
