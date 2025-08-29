@@ -8,3 +8,4 @@ transcripts/
 data/delta/*
 data/streaming/*
 data/models/*
+spark-warehouse

@@ -65,12 +65,10 @@ def get_spark(app_name: str, extra_conf: Optional[Dict[str, Any]] = None) -> Spa
          .config("spark.executor.heartbeatInterval", "60s")
          .config("spark.network.timeout", "600s")     # > 2 * heartbeatInterval
          .config("spark.rpc.askTimeout", "600s")
-         .config("spark.sql.shuffle.partitions", "8")
          .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
          .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
          .config("spark.sql.session.timeZone", "UTC")
          .config("spark.streaming.stopGracefullyOnShutdown", "true")
-         .config("spark.sql.shuffle.partitions", os.getenv("SPARK_SQL_SHUFFLE_PARTITIONS", "200"))
     )
 
     # --- Mongo v10 convenience (format = "mongodb") ---
@@ -83,27 +81,5 @@ def get_spark(app_name: str, extra_conf: Optional[Dict[str, Any]] = None) -> Spa
     if extra_conf:
         for k, v in extra_conf.items():
             b = b.config(k, str(v))
-
-    return b.getOrCreate()
-
-
-
-DELTA_PKG = "io.delta:delta-spark_2.12:3.1.0"
-MONGO_PKG = "org.mongodb.spark:mongo-spark-connector_2.12:10.3.0"
-
-def get_spark_airflow(app_name: str) -> SparkSession:
-    # If we are inside spark-submit, SparkContext already exists.
-    in_submit = os.environ.get("SPARK_SUBMIT_MODE", "0") in ("1", "true", "True")
-
-    b = SparkSession.builder.appName(app_name)
-    if not in_submit:
-        # Local dev or PythonOperator mode
-        b = (b.master("local[*]")
-             .config("spark.jars.packages", f"{DELTA_PKG},{MONGO_PKG}"))
-
-    b = (b
-         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-         .config("spark.sql.session.timeZone", "UTC"))
 
     return b.getOrCreate()

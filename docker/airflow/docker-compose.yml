@@ -48,14 +48,13 @@ services:
       - TRANSFORMERS_CACHE=/opt/airflow/.cache/huggingface
     env_file:
       - ../../.env.development
-    mem_limit: 10g            
+    mem_limit: 8g            
     mem_reservation: 4g      
     cpus: 2.0            
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/airflow/dags:/opt/airflow/dags
       - ${PWD}/airflow/config:/opt/airflow/config
-#      - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}/data:/data
       - ${PWD}/.hf-cache:/opt/airflow/.cache/huggingface
     command: scheduler

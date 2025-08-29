@@ -153,7 +153,7 @@ status:
 
 # --- Full Project Initialization ---
 init:
-	@$(MAKE) up
+	@$(MAKE) kafka-up mongo-up airflow-up
 	@docker compose -f $(SPARK_PATH)/docker-compose.yml build
 	@echo "Waiting for Kafka controller quorum..."
 	@until docker compose -f $(KAFKA_PATH)/docker-compose.yml exec kafka1 \
@@ -162,4 +162,5 @@ init:
 		sleep 2; \
 	done
 	@$(MAKE) create-topics
+	@$(MAKE) spark-up
 	@$(MAKE) status

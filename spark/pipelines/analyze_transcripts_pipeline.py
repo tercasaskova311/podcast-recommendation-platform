@@ -14,7 +14,7 @@ from pyspark.errors import AnalysisException
 from delta.tables import DeltaTable
 from sentence_transformers import SentenceTransformer
 
-from spark.util.common import get_spark_airflow
+from spark.util.common import get_spark
 from spark.util.delta import _ensure_table as ensure_table    
 
 
@@ -169,12 +169,7 @@ def compute_topk_pairs(
 # ---------------- PIPELINE ----------------
 def run_pipeline() -> None:
     # Create session inside the function (Airflow imports the module; avoid heavy globals)
-    spark = get_spark_airflow("podcast-recs")
-    spark.conf.set("spark.executor.heartbeatInterval", "60s")
-    spark.conf.set("spark.network.timeout", "600s")
-    spark.conf.set("spark.rpc.askTimeout", "600s")
-    spark.conf.set("spark.sql.session.timeZone", "UTC")
-    spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+    spark = get_spark("podcast-recs")
 
     # 1) Load transcripts Delta table
     transcripts = spark.read.format("delta").load(DELTA_PATH_TRANSCRIPTS)

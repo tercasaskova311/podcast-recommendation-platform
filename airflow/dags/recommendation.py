@@ -1,5 +1,5 @@
 from airflow import DAG
-from airflow.operators.bash import BashOperator
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.dates import days_ago
 import yaml
 
@@ -15,15 +15,33 @@ with DAG(
 ) as dag:
 
     #PROCESS USER EVENTS, FINDING SIMILARITIES
-    process_users_events = BashOperator(
-        task_id='process_users_events',
-        bash_command='python /opt/project/spark/pipelines/training_user_events_pipeline.py',
+    process_users_events = SparkSubmitOperator(
+        task_id="process_users_events",
+        application="/opt/project/spark/pipelines/training_user_events_pipeline.py",
+        name="process_users_events",
+        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
+        conf={
+            "spark.master": "local[*]",
+            "spark.driver.memory": "4g",
+            "spark.driver.memoryOverhead": "1g",
+        },
+        env_vars={"PYTHONPATH": "/opt/project"},
+        verbose=True,
     )
 
     #RETURN FINAL RACOMMENDATION TO USERS
-    user_recommendation = BashOperator(
-        task_id='user_recommendation',
-        bash_command='python /opt/project/spark/pipelines/final_recommendation.py',
+    user_recommendation = SparkSubmitOperator(
+        task_id="user_recommendation",
+        application="/opt/project/spark/pipelines/final_recommendation.py",
+        name="user_recommendation",
+        packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
+        conf={
+            "spark.master": "local[*]",
+            "spark.driver.memory": "4g",
+            "spark.driver.memoryOverhead": "1g",
+        },
+        env_vars={"PYTHONPATH": "/opt/project"},
+        verbose=True,
     )
 
     process_users_events >> user_recommendation
