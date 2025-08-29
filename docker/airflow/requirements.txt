@@ -1,6 +1,6 @@
-#Driver side
 delta-spark==3.1.0
 apache-airflow-providers-apache-spark==4.2.0
+apache-airflow-providers-docker==3.10.0
 PyYAML==6.0.2
 python-dotenv==1.0.1
 langdetect==1.0.9
@@ -23,4 +23,3 @@ scikit-learn==1.5.1
 pymongo==4.7.3
 
 faker>=19.0.0
-confluent-kafka>=2.1.1
