@@ -1,6 +1,3 @@
-# spark/pipelines/final_recommendation.py
-# Minimal hybrid recommender (ALS × content) using legacy Mongo connector ("mongodb")
-
 import os, sys
 from pyspark.sql import SparkSession, functions as F, types as T
 from pyspark.sql.window import Window
@@ -8,15 +5,26 @@ from pyspark.sql.window import Window
 from spark.util.common import get_spark
 
 from config.settings import (
-    N_FINAL_RECOMMENDATION,
-    MONGO_URI, MONGO_DB,
-    MONGO_COLLECTION_USER_EVENTS,  # expects (user_id, episode_id, als_score) or pre-agg 
-    MONGO_COLLECTION_SIMILARITIES, # similarities: new_episode_id, historical_episode_id, similarity               
-    MONGO_COLLECTION_FINAL_RECS,  # snapshot target
+    TOP_N, MONGO_URI, MONGO_DB,
+    MONGO_COLLECTION_USER_EVENTS,   
+    MONGO_COLLECTION,               
+    MONGO_COLLECTION_FINAL_RECS,    
+    MONGO_COLLECTION_USER_HISTORY,  
 )
 
 HYBRID_ALPHA = 0.7
 
+def read_history(spark: SparkSession):
+    return (
+        spark.read.format("mongo")
+            .option("uri", MONGO_URI)
+            .option("database", MONGO_DB)
+            .option("collection", MONGO_COLLECTION_USER_HISTORY)
+            .load()
+            .select(
+                F.col("user_id"),
+                F.col("episode_id").alias("historical_episode_id"))
+    )
 
 # --- 1) ALS seeds (user_id, episode_id, als_score) ---
 def read_als(spark: SparkSession):
@@ -38,7 +46,7 @@ def read_sim(spark: SparkSession):
         spark.read.format("mongodb")
             .option("spark.mongodb.read.connection.uri", MONGO_URI)
             .option("database", MONGO_DB)
-            .option("collection", MONGO_COLLECTION_SIMILARITIES)
+            .option("collection", MONGO_COLLECTION)
             .load()
             .select(
                 F.col("new_episode_id").alias("episode_id"),
@@ -48,41 +56,43 @@ def read_sim(spark: SparkSession):
             .dropna(subset=["episode_id", "similar_episode_id", "similarity"])
     )
 
+# COMPUTE FINAL RECS
+def compute_hybrid(als_df, sim_df, history_df, alpha: float):
 
-# --- 3) Blend: α·ALS + (1-α)·similarity ---
-def compute_hybrid(als_df, sim_df, alpha: float):
-    hybrid_raw = (
-        als_df.alias("a")
-        .join(sim_df.alias("s"), F.col("a.episode_id") == F.col("s.episode_id"), "inner")
-        .where(F.col("a.episode_id") != F.col("s.similar_episode_id"))  # avoid self recs
-        .select(
-            F.col("a.user_id").alias("user_id"),
-            F.col("s.similar_episode_id").alias("recommended_episode_id"),
-            (F.col("a.als_score") * F.lit(alpha) + F.col("s.similarity") * F.lit(1.0 - alpha)).alias("score"),
+    transcript_similarity = (
+        history_df.alias("h")
+        .join(
+            sim_df.alias("s"),
+            F.col("h.historical_episode_id") == F.col("s.similar_episode_id"),
+            "inner"
         )
+        .groupBy(
+            F.col("h.user_id").alias("user_id"),
+            F.col("s.episode_id").alias("episode_id")  
+        )
+        .agg(F.max("s.similarity").alias("similarity"))  
     )
 
     hybrid = (
-        hybrid_raw
+        als_df.alias("a")
+        .join(
+            transcript_similarity.alias("c"),
+            (F.col("a.user_id") == F.col("c.user_id")) &
+            (F.col("a.episode_id") == F.col("c.episode_id")),
+            "left"
+        )
+        .withColumn("similarity", F.coalesce(F.col("c.similarity"), F.lit(0.0)))
+        .select(
+            F.col("a.user_id").alias("user_id"),
+            F.col("a.episode_id").alias("recommended_episode_id"),
+            (F.col("a.als_score") * F.lit(alpha) +
+             F.col("similarity") * F.lit(1.0 - alpha)).alias("score"),
+        )
         .groupBy("user_id", "recommended_episode_id")
         .agg(F.max("score").alias("score"))
     )
 
-    # remove items the user already consumed 
-    user_history = (
-        als_df
-        .select("user_id", F.col("episode_id").alias("historical_episode_id"))
-        .distinct()
-    )
-
-    hybrid_clean = hybrid.join(
-        user_history,
-        on=[ "user_id", hybrid.recommended_episode_id == user_history.historical_episode_id ],
-        how="left_anti",
-    )
-
-    return hybrid_clean
-
+    return hybrid
 
 def top_n_per_user(hybrid_df, top_n: int):
     w = Window.partitionBy("user_id").orderBy(F.desc("score"))
@@ -92,12 +102,10 @@ def top_n_per_user(hybrid_df, top_n: int):
         .filter(F.col("rank") <= F.lit(top_n))
         .drop("rank")
         .withColumn("generated_at", F.current_timestamp())
-        .withColumn("trigger_reason", F.lit("scheduled_batch"))  # optional metadata...
     )
 
 # ---------- Write ----------
 def write_snapshot(df, collection: str):
-    #replace whole collection each run.
     (
         df.write
         .format("mongodb")
@@ -114,15 +122,14 @@ def main() -> int:
     try:
         als = read_als(spark)
         sim = read_sim(spark)
+        hist = read_history(spark)
 
-        hybrid = compute_hybrid(als, sim, HYBRID_ALPHA)
-        final_recs = top_n_per_user(hybrid, N_FINAL_RECOMMENDATION)
+        hybrid = compute_hybrid(als, sim, hist, HYBRID_ALPHA)  # <-- pass hist
+        final_recs = top_n_per_user(hybrid, TOP_N)
 
-        # Keep only the fields that dashboard expects
         final_recs_out = final_recs.select("user_id", "recommended_episode_id", "score", "generated_at")
-
         write_snapshot(final_recs_out, MONGO_COLLECTION_FINAL_RECS)
-        print(f"[OK] Wrote snapshot to {MONGO_DB}.{MONGO_COLLECTION_FINAL_RECS} (alpha={HYBRID_ALPHA}, topN={N_FINAL_RECOMMENDATION})")
+        print(f"[OK] Wrote snapshot to {MONGO_DB}.{MONGO_COLLECTION_FINAL_RECS} (alpha={HYBRID_ALPHA}, topN={TOP_N})")
         return 0
     except Exception as e:
         print(f"[ERROR] final_recommendation failed: {e}", file=sys.stderr)
@@ -130,5 +137,8 @@ def main() -> int:
     finally:
         spark.stop()
 
+
 if __name__ == "__main__":
     sys.exit(main())
+
+
