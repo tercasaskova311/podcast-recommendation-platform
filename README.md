@@ -1,12 +1,19 @@
 # Podcast Analytics & Recommendation Platform
 
+How can we recommend the right podcast episode to the right user — not just based on what they listened to, but also on what the episode is about?
+This project explores hybrid recommendation methods, combining:
+User event signals → clicks, listens, and engagement patterns
+Content similarity → transcript embeddings & text analysis
+By merging these two worlds, we aim to provide recommendations that are both personalized (based on history) and serendipitous (discovering new but relevant episodes).
+
 This project builds an end-to-end data pipeline to recommend podcast episodes to users based on their interactions and also podcasts content. The workflow includes:
 
-- Downloading new podcast episodes
-- Analyzing transcripts
-- Tracking user behavior (events)
-- Training recommendation models
-- Delivering real-time personalized recommendation for a podcasts episode
+# Workflow 
+- Ingest and store new podcast episodes & transcripts
+- Track and simulate user interactions
+- Train both collaborative filtering and content-based recommendation models
+- Combine their predictions into a hybrid recommendation system
+- Serve results through an interactive dashboard
 
 ---
 # 📂 Project Structure
@@ -36,7 +43,7 @@ root/
 ```
 ---
 
-## Pipeline Overview
+## Data Pipeline Overview
 
 | Stage                        | Description                                                                |
 |------------------------------|----------------------------------------------------------------------------|
@@ -50,16 +57,13 @@ root/
 ---
 ##  Technologies
 
-| Area            | Tools Used                           |
-|-----------------|--------------------------------------|
-| Workflow        | Apache Airflow                       |
-| Storage         | Delta Lake (with `_delta` tables),   |
-|                 | MongoDB, DuckDB                      |
-| Processing      | Apache Spark, Kafka                  |
-| Containerization| Docker                               |
-| NLP             | Transformers / Text Processing       |
-| Real-time       | Spark Streaming                      |
-| UI              | Streamlit                            |
+| Tool           | Why It’s Used                                          |
+| -------------- | ------------------------------------------------------ |
+| **Airflow**    | Orchestrates pipelines (DAG-based scheduling)          |
+| **Delta Lake** | Reliable, ACID-compliant storage for streaming + batch |
+| **Kafka**      | Handles real-time ingestion of episodes & user events  |
+| **Spark**      | Scales transcript + event processing for ML            |
+| **Streamlit**  | Lightweight dashboard for demo & visualization         |
 
 ---
 
@@ -99,7 +103,7 @@ root/
 * If your network uses a corporate/VPN proxy, ensure Docker can pull from Docker Hub (see **Troubleshooting**)
 
 ---
-# HOW TO RUN THE INFRASTRUCTURE
+# Getting Started
 
 1. Run **make init** (wait until it finishes).  
    The only container that should be stopped after this command is `airflow-airflow-init-1` (it is only used to initialize Airflow).  
@@ -112,7 +116,10 @@ root/
 
 ---
 
-### LAST STEP  
+### Viewing Results
 After these operations, we have simulated the functionality of the system.  
 To check the results, go to `http://localhost:8084`.  
 
+## Example Dashboard
+
+![Dashboard Screenshot](./docs/dashboard_example.png)
