@@ -5,15 +5,12 @@ from pymongo import MongoClient
 import time
 import duckdb
 
-# ----- Mongo essentials -----
-MONGO_URI = os.getenv("MONGO_URI") or "mongodb://localhost:27017"
-MONGO_DB = os.getenv("MONGO_DB") or "recs_db"
-MONGO_COLLECTION_FINAL_RECS = os.getenv("MONGO_COLLECTION_FINAL_RECS") or "final_recommendations"
-
-# ----- Delta / paths -----
-DELTA_EVENTS_PATH = os.getenv("DELTA_EVENTS_PATH") or "./_delta/events"
-DELTA_PATH_EPISODES = os.getenv("DELTA_PATH_EPISODES") or "./_delta/episodes"
-
+from config.settings import (
+    MONGO_URI, MONGO_DB, 
+    MONGO_COLLECTION_FINAL_RECS, 
+    DELTA_EVENTS_PATH,
+    DELTA_PATH_EPISODES 
+)
 st.set_page_config(page_title="Podcast Recommendation Platform – Simple", layout="wide")
 
 #REFRESH ===========================

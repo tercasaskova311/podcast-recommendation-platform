@@ -7,7 +7,7 @@ from spark.util.common import get_spark
 from config.settings import (
     TOP_N, MONGO_URI, MONGO_DB,
     MONGO_COLLECTION_USER_EVENTS,   
-    MONGO_COLLECTION,               
+    MONGO_COLLECTION_SIMILARITIES,               
     MONGO_COLLECTION_FINAL_RECS,    
     MONGO_COLLECTION_USER_HISTORY,  
 )
@@ -46,7 +46,7 @@ def read_sim(spark: SparkSession):
         spark.read.format("mongodb")
             .option("spark.mongodb.read.connection.uri", MONGO_URI)
             .option("database", MONGO_DB)
-            .option("collection", MONGO_COLLECTION)
+            .option("collection", MONGO_COLLECTION_SIMILARITIES)
             .load()
             .select(
                 F.col("new_episode_id").alias("episode_id"),

@@ -4,6 +4,7 @@ KAFKA_PATH=./docker/kafka
 MONGO_PATH=./docker/mongodb
 SPARK_PATH=./docker/spark
 AIRFLOW_PATH=./docker/airflow
+STREAMLIT_PATH=./docker/streamlit        # <-- NEW (dashboard compose lives here)
 
 KAFKA_BIN=/opt/kafka/bin
 
@@ -19,7 +20,9 @@ endif
         mongo-up mongo-down mongo-logs mongo-status mongo-shell \
         build-spark-image spark-up spark-down spark-logs spark-status \
         spark-up-metadata spark-up-transcripts-en spark-up-summary \
-        build-airflow-image airflow-up airflow-down airflow-logs init
+        build-airflow-image airflow-up airflow-down airflow-logs \
+		dashboard-up dashboard-down dashboard-logs dashboard-status \
+		init
 
 # --- Kafka Commands ---
 kafka-up:
@@ -95,6 +98,23 @@ mongo-status:
 mongo-shell:
 	docker exec -it mongodb mongosh
 
+# NEW: initialize DB indexes used by the recsys
+mongo-init:
+	@echo "Waiting for MongoDB..."
+	@until docker exec mongodb mongosh --quiet --eval "db.adminCommand('ping')" >/dev/null 2>&1; do \
+		echo "  Mongo not ready, waiting..."; sleep 2; \
+	done
+	@echo "Creating MongoDB indexes..."
+	@docker exec mongodb mongosh --quiet --eval '\
+		db = db.getSiblingDB("$(MONGO_DB)"); \
+		db.user_history_snapshot.createIndex({ user_id:1 }); \
+		db.user_history_snapshot.createIndex({ user_id:1, episode_id:1 }, { unique:true }); \
+		db.final_recommendations.createIndex({ user_id:1 }); \
+		db.final_recommendations.createIndex({ recommended_episode_id:1 }); \
+		db.$(MONGO_COLLECTION_USER_EVENTS).createIndex({ user_id:1 }); \
+		db.$(MONGO_COLLECTION_USER_EVENTS).createIndex({ episode_id:1 }); \
+	'
+
 # -- Spark Commands ---
 build-spark-image:
 	docker build -t $(SPARK_IMAGE_NAME):$(SPARK_IMAGE_TAG) $(SPARK_PATH)/
@@ -126,10 +146,34 @@ airflow-down:
 airflow-logs:
 	docker compose -f $(AIRFLOW_PATH)/docker-compose.yml logs -f
 
-# --- General Aggregate Commands ---
-up: kafka-up mongo-up spark-up airflow-up
+# -- Dashboard (Streamlit) ---
+dashboard-up:
+	docker compose --env-file .env.development -f $(STREAMLIT_PATH)/docker-compose.yml up -d --build
+dashboard-down:
+	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml down
+dashboard-logs:
+	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml logs -f
+dashboard-status:
+	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml ps
 
-down: mongo-down spark-down airflow-down kafka-down
+DASHBOARD_PORT ?= 8510
+DASHBOARD_URL  ?= http://localhost:$(DASHBOARD_PORT)
+
+wait-for-dashboard:
+	@echo "Waiting for $(DASHBOARD_URL)…"
+	@until curl -fsS "$(DASHBOARD_URL)" >/dev/null 2>&1; do sleep 1; printf "."; done; echo " up!"
+
+open-dashboard:
+	@URL="$(DASHBOARD_URL)"; \
+	if command -v open >/dev/null 2>&1; then open $$URL; \
+	elif command -v xdg-open >/dev/null 2>&1; then xdg-open $$URL; \
+	elif command -v powershell.exe >/dev/null 2>&1; then powershell.exe Start-Process $$URL; \
+	else echo "Open $$URL in your browser."; fi
+
+# --- General Aggregate Commands ---
+up: kafka-up mongo-up spark-up airflow-up dashboard-up
+
+down: mongo-down spark-down airflow-down kafka-down dashboard-down
 
 restart: down up
 
@@ -142,6 +186,8 @@ logs:
 	docker compose -f $(SPARK_PATH)/docker-compose.yml logs --tail=20
 	@echo "\n--- Airflow Logs ---"
 	docker compose -f $(AIRFLOW_PATH)/docker-compose.yml logs --tail=20
+	@echo "\n--- Dashboard Logs ---";
+	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml logs --tail=20
 
 status:
 	@echo "\n--- Kafka Status ---"
@@ -150,6 +196,8 @@ status:
 	docker compose -f $(MONGO_PATH)/docker-compose.yml ps
 	@echo "\n--- Spark Status ---"
 	docker compose -f $(SPARK_PATH)/docker-compose.yml ps
+	@echo "\n--- Dashboard Status ---"
+	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml ps
 
 # --- Full Project Initialization ---
 init:
@@ -162,5 +210,8 @@ init:
 		sleep 2; \
 	done
 	@$(MAKE) create-topics
+	@$(MAKE) mongo-init
+	@$(MAKE) wait-for-dashboard
+	@$(MAKE) open-dashboard
 	@$(MAKE) spark-up
 	@$(MAKE) status

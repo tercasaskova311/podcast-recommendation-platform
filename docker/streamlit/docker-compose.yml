@@ -19,5 +19,5 @@ services:
       # avoid AWS IMDS calls on laptops
       AWS_EC2_METADATA_DISABLED: "true"
     command: >
-      streamlit run dashboard.py --server.port 8504 --server.address 0.0.0.0
+      streamlit run dashboard.py --server.port 8504 --server.address 0.0.0.0 --server.headless true
     restart: unless-stopped
