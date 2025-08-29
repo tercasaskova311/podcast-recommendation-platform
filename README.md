@@ -1,9 +1,11 @@
 # Podcast Analytics & Recommendation Platform
 
 How can we recommend the right podcast episode to the right user — not just based on what they listened to, but also on what the episode is about?
+
 This project explores hybrid recommendation methods, combining:
-User event signals → clicks, listens, and engagement patterns
-Content similarity → transcript embeddings & text analysis
+- User event signals → clicks, listens, and engagement patterns
+- Content similarity → transcript embeddings & text analysis
+
 By merging these two worlds, we aim to provide recommendations that are both personalized (based on history) and serendipitous (discovering new but relevant episodes).
 
 This project builds an end-to-end data pipeline to recommend podcast episodes to users based on their interactions and also podcasts content. The workflow includes:
@@ -122,3 +124,4 @@ To check the results, go to `http://localhost:8084`.
 
 ## Example Dashboard
 ![Dashboard Screenshot](./docs/dashboard.png)
+
