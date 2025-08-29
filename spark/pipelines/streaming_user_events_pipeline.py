@@ -1,10 +1,12 @@
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import *
 from delta.tables import DeltaTable
+from pymongo import MongoClient, UpdateOne, ASCENDING
 
 from config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
-    USER_EVENT_STREAM
+    USER_EVENT_STREAM,
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION_USER_HISTORY
 )
 from spark.util.common import get_spark
 
@@ -19,7 +21,6 @@ CONSUMER_GROUP_ID = 'user-events-streamer'
 spark = get_spark("Streaming-user-events")
 
 # ----------------- Schema -----------------
-# Describe the JSON in Kafka. 
 schema = StructType([
     StructField("event_id", StringType()),
     StructField("user_id", StringType()),
@@ -32,6 +33,7 @@ schema = StructType([
     StructField("from_sec", IntegerType()),
     StructField("to_sec", IntegerType()),
     StructField("played_pct", DoubleType()),
+    StructField("bucket", StringType()),  # optional if present from producer
 ])
 
 # ----------------- Read Kafka Stream -----------------
@@ -40,15 +42,17 @@ raw = (
     .option("kafka.bootstrap.servers", KAFKA_URL)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
     .option("kafka.group.id", CONSUMER_GROUP_ID)
-    .option("startingOffsets", "earliest") #start from latest offsets
+    .option("startingOffsets", "earliest")
+    .option("maxOffsetsPerTrigger", "20")
     .option("failOnDataLoss", "false")
     .load()
 )
 
 # ----------------- Parse JSON + Dedup -----------------
+# keep only 3 fractional ms digits (Spark format "SSS")
 ts_ms = F.regexp_replace(
     F.col("ts"),
-    r'\.(\d{3})\d+(?=(?:[+-]\d{2}:\d{2}|Z)$)',   # keep first 3 frac digits before timezone
+    r'\.(\d{3})\d+(?=(?:[+-]\d{2}:\d{2}|Z)$)',
     r'.\1'
 )
 
@@ -56,13 +60,12 @@ parsed = (
     raw.selectExpr("CAST(value AS STRING) AS json")
        .select(F.from_json("json", schema).alias("e"))
        .select("e.*")
-        .withColumn("ts", F.to_timestamp(ts_ms, "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"))
-       .withWatermark("ts", "2 hours")  # handle late events up to 2h
-       .dropDuplicates(["event_id"])    # prevent double-counting
+       .withColumn("ts", F.to_timestamp(ts_ms, "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"))
+       .withWatermark("ts", "2 hours")
+       .dropDuplicates(["event_id"])
 )
 
 # ----------------- Compute Engagement Weights -----------------
-# Map each event to a numeric "energy" contribution.
 w = (
     F.when(F.col("event")=="like", F.lit(LIKE_W))
      .when(F.col("event")=="complete", F.lit(COMPLETE_W))
@@ -78,7 +81,7 @@ scored = (
     .withColumn("day", F.to_date("ts"))
 )
 
-# Initialize Delta table if it doesn't exist
+# Init Delta daily table if missing
 try:
     DeltaTable.forPath(spark, DELTA_PATH_DAILY)
 except Exception:
@@ -88,13 +91,13 @@ except Exception:
         created_at timestamp, updated_at timestamp
     """)
      .write.format("delta").partitionBy("day").mode("overwrite").save(DELTA_PATH_DAILY))
-    
 
 # ----------------- Process Each Micro-Batch -----------------
 def process_batch(batch_df, batch_id):
     if batch_df.rdd.isEmpty():
         return
 
+    # 1) Upsert daily aggregates to Delta
     daily = (
         batch_df.groupBy("user_id", "episode_id", "day")
                 .agg(
@@ -107,7 +110,6 @@ def process_batch(batch_df, batch_id):
     spark = batch_df.sparkSession
     tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
 
-    # Merge new data into table (upsert)
     (
         tgt.alias("t")
            .merge(
@@ -124,7 +126,7 @@ def process_batch(batch_df, batch_id):
                "user_id":    F.col("s.user_id"),
                "episode_id": F.col("s.episode_id"),
                "day":        F.col("s.day"),
-                "engagement": F.col("s.engagement"),
+               "engagement": F.col("s.engagement"),
                "num_events": F.col("s.num_events"),
                "last_ts":    F.col("s.last_ts"),
                "created_at": F.current_timestamp(),
@@ -133,12 +135,50 @@ def process_batch(batch_df, batch_id):
            .execute()
     )
 
+    # 2) Build "history" candidates (positive-interest rule)
+    #    Rule: include if like OR complete OR (rate >= 4). Keep most recent ts per pair.
+    hist_candidates = (
+        batch_df
+        .filter(
+            (F.col("event") == F.lit("like")) |
+            (F.col("event") == F.lit("complete")) |
+            ((F.col("event") == F.lit("rate")) & (F.col("rating") >= F.lit(4)))
+        )
+        .groupBy("user_id", "episode_id")
+        .agg(F.max("ts").alias("last_ts"))
+        .dropna(subset=["user_id", "episode_id"])
+    )
+
+    # Collect small distinct set and upsert to Mongo (idempotent)
+    pairs = hist_candidates.select("user_id", "episode_id", "last_ts").toLocalIterator()
+
+    client = MongoClient(MONGO_URI)
+    coll = client[MONGO_DB][MONGO_COLLECTION_USER_HISTORY]
+    # Ensure unique (first run is cheap; subsequent runs are no-ops)
+    coll.create_index([("user_id", ASCENDING), ("episode_id", ASCENDING)], unique=True)
+
+    ops = []
+    for row in pairs:
+        ops.append(
+            UpdateOne(
+                {"user_id": row["user_id"], "episode_id": row["episode_id"]},
+                {
+                    "$setOnInsert": {"first_seen_at": row["last_ts"]},
+                    "$set": {"last_seen_at": row["last_ts"]}
+                },
+                upsert=True
+            )
+        )
+
+    if ops:
+        coll.bulk_write(ops, ordered=False)
+
 # ----------------- Start Streaming Query -----------------
 q = (
     scored.writeStream
           .foreachBatch(process_batch)
           .option("checkpointLocation", USER_EVENT_STREAM)
-          .trigger(processingTime="30 seconds")    
+          .trigger(processingTime="30 seconds")
           .start()
 )
 
