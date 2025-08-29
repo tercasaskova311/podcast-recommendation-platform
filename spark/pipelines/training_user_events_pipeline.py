@@ -17,7 +17,6 @@ ALS_REG       = 0.08
 ALS_ALPHA     = 40.0
 MIN_ENGAGEMENT= 1e-6
 MIN_HISTORY_ENGAGEMENT = 1e-6     
-MONGO_COLLECTION_USER_HISTORY = "user_history_snapshot"
 
 spark = get_spark("user-events-training")
 
