@@ -36,6 +36,8 @@ services:
     command: >
       spark-submit
       --master local[*]
+      --driver-memory 3g
+      --conf spark.driver.memoryOverhead=512m
       --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.6,io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0
       /opt/project/spark/pipelines/streaming_user_events_pipeline.py
     environment:
@@ -44,6 +46,7 @@ services:
       - SPARK_SUBMIT_OPTS=-XX:+UseG1GC -Duser.timezone=UTC
     env_file:
       - ../../.env.development
+    mem_limit: 5g     
     volumes:
       - ${PWD}:/opt/project
       - ${PWD}/data:/data

@@ -1,23 +1,23 @@
-# docker-compose.yml
+version: "3.8"
 services:
   dashboard:
-    build:
-      context: ../..                     # project root
-      dockerfile: docker/streamlit/Dockerfile
-    working_dir: /app
+    image: ${DASHBOARD_IMAGE_NAME}:${DASHBOARD_IMAGE_TAG}
+    container_name: dashboard
     volumes:
-      - ../..:/app                       # mount project root → /app
+      - ${PWD}:/opt/project
+      - ${PWD}/data:/data
     ports:
-      - "8510:8504"                      # use a free host port
+      - "8084:8504"
+    env_file:
+      - ../../.env.development
     environment:
-      MONGO_URI: "mongodb://admin:pass@mongodb:27017/?authSource=admin"
-      MONGO_DB: "podcasts"
-      MONGO_COLLECTION_FINAL_RECS: "final_recommendations"
-      # Delta paths inside the container (bind-mounted project)
-      DELTA_EVENTS_PATH: "/app/_delta/events"
-      DELTA_PATH_EPISODES: "/app/_delta/episodes"
-      # avoid AWS IMDS calls on laptops
-      AWS_EC2_METADATA_DISABLED: "true"
+      - PYTHONPATH=/opt/project
     command: >
-      streamlit run dashboard.py --server.port 8504 --server.address 0.0.0.0
+      streamlit run /opt/project/scripts/dashboard/dashboard.py --server.port 8504 --server.address 0.0.0.0
     restart: unless-stopped
+    networks:
+      - kafka-net
+networks:
+  kafka-net:
+    external: true
+    name: kafka-net

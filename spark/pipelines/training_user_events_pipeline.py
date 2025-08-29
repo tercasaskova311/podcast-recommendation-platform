@@ -8,7 +8,7 @@ from spark.util.common import get_spark
 from config.settings import (
     DELTA_PATH_DAILY,
     ALS_MODEL_PATH, N_RECOMMENDATION_FOR_USER,
-    MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS,
+    MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS_TRAINING, MONGO_COLLECTION_USER_HISTORY
 )
 
 ALS_RANK      = 32
@@ -35,11 +35,11 @@ grouped_by_user = (
 user_history = grouped_by_user.select("user_id", "episode_id").distinct()
 
 (user_history.write
-    .format("mongo")
+    .format("mongodb")
     .mode("overwrite")  # daily snapshot; use "append" if you prefer incremental with upserts
-    .option("uri", MONGO_URI)
+    .option("spark.mongodb.write.connection.uri", MONGO_URI)
     .option("database", MONGO_DB)
-    .option("collection", "user_history_snapshot")  # <-- add to settings as MONGO_COLLECTION_USER_HISTORY
+    .option("collection", MONGO_COLLECTION_USER_HISTORY)
     .save()
 )
 
@@ -133,7 +133,7 @@ user_recs = (
     .mode("overwrite")
     .option("spark.mongodb.write.connection.uri", MONGO_URI)
     .option("database", MONGO_DB)
-    .option("collection", MONGO_COLLECTION_USER_EVENTS)
+    .option("collection", MONGO_COLLECTION_USER_EVENTS_TRAINING)
     .save()
 )
 print("Save to mongo")

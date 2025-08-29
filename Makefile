@@ -4,6 +4,7 @@ KAFKA_PATH=./docker/kafka
 MONGO_PATH=./docker/mongodb
 SPARK_PATH=./docker/spark
 AIRFLOW_PATH=./docker/airflow
+DASHBOARD_PATH=./docker/streamlit
 
 KAFKA_BIN=/opt/kafka/bin
 
@@ -19,7 +20,8 @@ endif
         mongo-up mongo-down mongo-logs mongo-status mongo-shell \
         build-spark-image spark-up spark-down spark-logs spark-status \
         spark-up-metadata spark-up-transcripts-en spark-up-summary \
-        build-airflow-image airflow-up airflow-down airflow-logs init
+        build-airflow-image airflow-up airflow-down airflow-logs init \
+		build-dashboard-image dashboard-up dashboard-down dashboard-logs
 
 # --- Kafka Commands ---
 kafka-up:
@@ -126,10 +128,24 @@ airflow-down:
 airflow-logs:
 	docker compose -f $(AIRFLOW_PATH)/docker-compose.yml logs -f
 
-# --- General Aggregate Commands ---
-up: kafka-up mongo-up spark-up airflow-up
+# -- Dashboard Commands ---
+build-dashboard-image:
+	docker build -t $(DASHBOARD_IMAGE_NAME):$(DASHBOARD_IMAGE_TAG) $(DASHBOARD_PATH)/
 
-down: mongo-down spark-down airflow-down kafka-down
+dashboard-up:
+	@$(MAKE) build-dashboard-image
+	docker compose --env-file .env.development -f $(DASHBOARD_PATH)/docker-compose.yml up -d --build
+
+dashboard-down:
+	docker compose -f $(DASHBOARD_PATH)/docker-compose.yml down
+
+dashboard-logs:
+	docker compose -f $(DASHBOARD_PATH)/docker-compose.yml logs -f
+
+# --- General Aggregate Commands ---
+up: kafka-up mongo-up spark-up airflow-up dashboard-up
+
+down: mongo-down spark-down airflow-down dashboard-down kafka-down
 
 restart: down up
 
@@ -163,4 +179,5 @@ init:
 	done
 	@$(MAKE) create-topics
 	@$(MAKE) spark-up
+	@$(MAKE) dashboard-up
 	@$(MAKE) status

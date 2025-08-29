@@ -5,9 +5,9 @@ from pyspark.sql.window import Window
 from spark.util.common import get_spark
 
 from config.settings import (
-    TOP_N, MONGO_URI, MONGO_DB,
-    MONGO_COLLECTION_USER_EVENTS,   
-    MONGO_COLLECTION,               
+    N_EVENTS_PER_USER, MONGO_URI, MONGO_DB,
+    MONGO_COLLECTION_USER_EVENTS_TRAINING,   
+    MONGO_COLLECTION_SIMILARITIES,               
     MONGO_COLLECTION_FINAL_RECS,    
     MONGO_COLLECTION_USER_HISTORY,  
 )
@@ -16,15 +16,19 @@ HYBRID_ALPHA = 0.7
 
 def read_history(spark: SparkSession):
     return (
-        spark.read.format("mongo")
-            .option("uri", MONGO_URI)
+        spark.read.format("mongodb")
+            .option("spark.mongodb.read.connection.uri", MONGO_URI)
             .option("database", MONGO_DB)
             .option("collection", MONGO_COLLECTION_USER_HISTORY)
             .load()
             .select(
                 F.col("user_id"),
-                F.col("episode_id").alias("historical_episode_id"))
+                F.col("episode_id").alias("historical_episode_id")
+            )
+            .dropna(subset=["user_id", "historical_episode_id"])
+            .dropDuplicates(["user_id", "historical_episode_id"])
     )
+
 
 # --- 1) ALS seeds (user_id, episode_id, als_score) ---
 def read_als(spark: SparkSession):
@@ -32,7 +36,7 @@ def read_als(spark: SparkSession):
         spark.read.format("mongodb")
             .option("spark.mongodb.read.connection.uri", MONGO_URI)
             .option("database", MONGO_DB)
-            .option("collection", MONGO_COLLECTION_USER_EVENTS)
+            .option("collection", MONGO_COLLECTION_USER_EVENTS_TRAINING)
             .load()
             .select("user_id", "episode_id", "als_score")
             .withColumn("als_score", F.col("als_score").cast(T.DoubleType()))
@@ -46,7 +50,7 @@ def read_sim(spark: SparkSession):
         spark.read.format("mongodb")
             .option("spark.mongodb.read.connection.uri", MONGO_URI)
             .option("database", MONGO_DB)
-            .option("collection", MONGO_COLLECTION)
+            .option("collection", MONGO_COLLECTION_SIMILARITIES)
             .load()
             .select(
                 F.col("new_episode_id").alias("episode_id"),
@@ -125,11 +129,11 @@ def main() -> int:
         hist = read_history(spark)
 
         hybrid = compute_hybrid(als, sim, hist, HYBRID_ALPHA)  # <-- pass hist
-        final_recs = top_n_per_user(hybrid, TOP_N)
+        final_recs = top_n_per_user(hybrid, N_EVENTS_PER_USER)
 
         final_recs_out = final_recs.select("user_id", "recommended_episode_id", "score", "generated_at")
         write_snapshot(final_recs_out, MONGO_COLLECTION_FINAL_RECS)
-        print(f"[OK] Wrote snapshot to {MONGO_DB}.{MONGO_COLLECTION_FINAL_RECS} (alpha={HYBRID_ALPHA}, topN={TOP_N})")
+        print(f"[OK] Wrote snapshot to {MONGO_DB}.{MONGO_COLLECTION_FINAL_RECS} (alpha={HYBRID_ALPHA}, topN={N_EVENTS_PER_USER})")
         return 0
     except Exception as e:
         print(f"[ERROR] final_recommendation failed: {e}", file=sys.stderr)
