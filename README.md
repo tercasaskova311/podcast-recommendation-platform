@@ -9,6 +9,9 @@ This project builds an end-to-end data pipeline to recommend podcast episodes to
 - Delivering real-time personalized recommendation for a podcasts episode
 
 ---
+# 📂 Project Structure
+
+```bash
 root/
 ├── _delta/                # Delta Lake tables (episodes, events, history)
 ├── airflow/               # Apache Airflow DAG orchestration configs
@@ -28,7 +31,7 @@ root/
 ├── .gitignore             # Ignore rules for Git
 ├── Makefile               # Developer shortcuts (build, test, run, deploy)
 ├── requirements.txt       # Python dependencies
-└── README.md              # Project documentation (you are here!)
+└── README.md              # Project documentation 
 
 
 ---
