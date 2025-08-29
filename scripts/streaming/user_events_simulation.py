@@ -8,17 +8,32 @@ from pymongo import MongoClient
 
 from config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING,
-    MONGO_URI, MONGO_DB, MONGO_COLLECTION_USERS
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION_USERS,
+    MONGO_COLLECTION_SIMILARITIES
 )
 
 EVENTS = ["pause", "like", "skip", "rate", "complete"]
-MIN_USERS_PER_RUN = 30              # at least 100 users per run
+MIN_USERS_PER_RUN = 30              # at least 30 users per run
 BUCKET_MINUTES = 10                  # Airflow runs every 10 min -> 1 bucket
 
 producer = KafkaProducer(
     bootstrap_servers=KAFKA_URL,
     value_serializer=lambda v: json.dumps(v).encode("utf-8")
 )
+
+def fetch_episode_ids(mc, limit: int = 0, sample_n: int = 500):
+    coll = mc[MONGO_DB][MONGO_COLLECTION_SIMILARITIES]
+    cursor = coll.find({}, {"_id": 0, "new_episode_id": 1, "historical_episode_id": 1})
+    ids = []
+    for d in cursor:
+        if d.get("new_episode_id"):        ids.append(str(d["new_episode_id"]))
+        if d.get("historical_episode_id"): ids.append(str(d["historical_episode_id"]))
+    # de-dupe + drop "null"/empty
+    ids = [x for x in dict.fromkeys(ids) if x and x.lower() != "null"]
+    if limit > 0: ids = ids[:limit]
+    if sample_n > 0 and len(ids) > sample_n: ids = random.sample(ids, sample_n)
+    return ids
+
 
 def floor_to_bucket(ts: datetime, minutes: int) -> datetime:
     minute = (ts.minute // minutes) * minutes
@@ -58,6 +73,11 @@ def main():
         print("[ERROR] No users in Mongo. Run bootstrap_users.py first.", file=sys.stderr)
         sys.exit(1)
 
+    episode_ids = fetch_episode_ids(mc)
+    if not episode_ids:
+        print("[ERROR] No episode IDs found in Mongo similarities.", file=sys.stderr)
+        sys.exit(2)
+
     bucket = bucket_id_utc()
     selected = choose_users(users)
 
@@ -71,11 +91,13 @@ def main():
         device = random.choice(["ios", "android", "web"])
         e = random.choice(EVENTS)
         event_id = deterministic_event_id(uid, bucket)
+        ep_id = random.choice(episode_ids)
 
         msg = {
             "event_id": event_id,
             "bucket": bucket,
             "ts": now_iso(),
+            "episode_id": ep_id,
             "user_id": uid,
             "event": e,
             "device": device,

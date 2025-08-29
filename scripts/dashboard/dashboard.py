@@ -10,11 +10,9 @@ from config.settings import (
     MONGO_DB,
     MONGO_COLLECTION_FINAL_RECS,
     MONGO_COLLECTION_USERS,
-    DELTA_PATH_EPISODES,
+    DELTA_RAW_USER_EVENTS_PATH,   # raw events written by streaming
+    DELTA_PATH_EPISODES,          # episode_id -> episode_title
 )
-
-# ----- Delta / paths -----
-DELTA_EVENTS_PATH = os.getenv("DELTA_EVENTS_PATH") or "./_delta/events"
 
 st.set_page_config(page_title="Podcast Recommendation Platform – Simple", layout="wide")
 
@@ -25,18 +23,18 @@ if st.sidebar.button("Refresh now"):
     st.rerun()
 
 auto = st.sidebar.checkbox("Auto-refresh")
-every = st.sidebar.slider("Every (seconds)", 5, 60, 10, disabled=not auto)  # set up timer to refresh the data
+every = st.sidebar.slider("Every (seconds)", 5, 60, 10, disabled=not auto)
 if auto:
     time.sleep(every)
     st.cache_data.clear()
     st.rerun()
 
 # ========================= HELPERS =========================
-@st.cache_resource(show_spinner=False)  # mongo client for streamlit session
+@st.cache_resource(show_spinner=False)
 def _client() -> MongoClient:
     return MongoClient(MONGO_URI, tz_aware=True)
 
-@st.cache_data(ttl=5, show_spinner=False)  # data is cached for 5 seconds - refresh...
+@st.cache_data(ttl=5, show_spinner=False)
 def load_recs() -> pd.DataFrame:
     col = _client()[MONGO_DB][MONGO_COLLECTION_FINAL_RECS]
     docs = list(
@@ -57,10 +55,7 @@ def load_recs() -> pd.DataFrame:
 def load_users() -> pd.DataFrame:
     col = _client()[MONGO_DB][MONGO_COLLECTION_USERS]
     docs = list(
-        col.find(
-            {},
-            {"_id": 0, "id": 1, "name": 1, "surname": 1, "date_of_birth": 1, "gender": 1},
-        )
+        col.find({}, {"_id": 0, "id": 1, "name": 1, "surname": 1, "date_of_birth": 1, "gender": 1})
     )
     df = pd.DataFrame(docs)
     if not df.empty:
@@ -76,7 +71,7 @@ def load_users() -> pd.DataFrame:
 def _duck():
     con = duckdb.connect()
     con.execute("INSTALL delta; LOAD delta;")
-    if DELTA_EVENTS_PATH.startswith("s3://") or DELTA_PATH_EPISODES.startswith("s3://"):
+    if any(p.startswith("s3://") for p in [DELTA_RAW_USER_EVENTS_PATH, DELTA_PATH_EPISODES]):
         con.execute("INSTALL httpfs; LOAD httpfs;")
         con.execute("SET s3_region = $region", {"region": os.getenv("AWS_REGION", "eu-west-1")})
         con.execute("SET s3_access_key_id = $akid", {"akid": os.getenv("AWS_ACCESS_KEY_ID", "")})
@@ -87,8 +82,8 @@ def _duck():
 @st.cache_data(ttl=5, show_spinner=False)
 def load_events_duck(minutes: int = 10) -> pd.DataFrame:
     """
-    Reads only the last `minutes` from the Delta events table into a pandas DF.
-    Expected columns: ts, user_id, episode_id, event, rating (rating optional).
+    Reads only the last `minutes` of raw user events from Delta.
+    Expected columns: ts, user_id, episode_id, event, rating.
     """
     try:
         con = _duck()
@@ -96,7 +91,7 @@ def load_events_duck(minutes: int = 10) -> pd.DataFrame:
             """
             WITH src AS (
               SELECT
-                try_cast(ts AS TIMESTAMP) AS ts,  -- robust if ts is stored as string
+                try_cast(ts AS TIMESTAMP) AS ts,
                 CAST(user_id AS VARCHAR) AS user_id,
                 CAST(episode_id AS VARCHAR) AS episode_id,
                 event, rating
@@ -107,7 +102,7 @@ def load_events_duck(minutes: int = 10) -> pd.DataFrame:
             WHERE ts >= now() - (? * INTERVAL 1 MINUTE)
             ORDER BY ts ASC
             """,
-            [DELTA_EVENTS_PATH, int(minutes)],
+            [DELTA_RAW_USER_EVENTS_PATH, int(minutes)],
         ).df()
     except Exception as e:
         st.warning(f"Delta read failed: {e}")
@@ -121,6 +116,9 @@ def load_events_duck(minutes: int = 10) -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_episode_meta_duck() -> pd.DataFrame:
+    """
+    Episode metadata with titles. Must contain: episode_id, episode_title.
+    """
     try:
         con = _duck()
         df = con.execute(
@@ -194,7 +192,6 @@ top_table = pd.DataFrame(columns=["name", "lastname", "date_of_birth", "gender",
 
 if not recs.empty:
     r = recs.copy()
-    # ensure necessary fields
     for c in ["user_id", "episode_title", "score"]:
         if c not in r.columns:
             r[c] = None
@@ -204,11 +201,9 @@ if not recs.empty:
     r = r.sort_values(["user_id", "score"], ascending=[True, False])
     per_user_top1 = r.dropna(subset=["user_id"]).drop_duplicates(subset=["user_id"], keep="first")
 
-    # join user profile: use INNER JOIN so rows without a user are excluded
+    # INNER join => drop rows without a profile
     if not users.empty:
         per_user_top1 = per_user_top1.merge(users, on="user_id", how="inner")
-
-        # additionally guard against blank names/surnames
         if not per_user_top1.empty:
             per_user_top1 = per_user_top1.dropna(subset=["name", "surname"])
             per_user_top1 = per_user_top1[
@@ -216,24 +211,16 @@ if not recs.empty:
                 (per_user_top1["surname"].astype(str).str.strip() != "")
             ]
     else:
-        # No users => no rows in the first table
         per_user_top1 = per_user_top1.iloc[0:0]
 
-    # build visible table
     if not per_user_top1.empty:
         tbl = per_user_top1[["name", "surname", "date_of_birth", "gender", "episode_title", "score"]].copy()
         tbl.rename(columns={"surname": "lastname"}, inplace=True)
-
-        # keep top 20 by score
-        tbl = tbl.sort_values("score", ascending=False).head(20)
-
-        # order by lastname and name
+        tbl = tbl.sort_values("score", ascending=False).head(20)   # top 20 by score
         for c in ["lastname", "name", "date_of_birth", "gender", "episode_title"]:
             if c not in tbl.columns:
                 tbl[c] = ""
         tbl = tbl.sort_values(["lastname", "name"], ascending=[True, True])
-
-        # final visible columns
         top_table = tbl[["name", "lastname", "date_of_birth", "gender", "episode_title"]]
 
 st.dataframe(top_table, use_container_width=True)
@@ -252,7 +239,6 @@ if not events.empty:
 else:
     st.info("No events in this window.")
 
-# Top engagement
 def engagement_topk(events_df: pd.DataFrame, weights: dict, topk_n: int = 20) -> pd.DataFrame:
     if events_df.empty:
         return pd.DataFrame(columns=["episode_title", "engagement_score", "event_count"])
@@ -267,7 +253,6 @@ st.markdown("#### Top Episodes by User Engagement")
 eng = engagement_topk(events, w, topk)
 st.dataframe(eng if not eng.empty else pd.DataFrame(columns=["episode_title", "engagement_score", "event_count"]), use_container_width=True)
 
-# Top rated (optional)
 def top_rated_bayes(events_df: pd.DataFrame, m: int = 5, topk_n: int = 20) -> pd.DataFrame:
     if events_df.empty:
         return pd.DataFrame(columns=["episode_title", "avg_rating", "votes", "wr"])

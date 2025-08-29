@@ -8,7 +8,7 @@ from spark.util.common import get_spark
 from config.settings import (
     DELTA_PATH_DAILY,
     ALS_MODEL_PATH, N_RECOMMENDATION_FOR_USER,
-    MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS_TRAINING, MONGO_COLLECTION_USER_HISTORY
+    MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS_TRAINING
 )
 
 ALS_RANK      = 32
@@ -24,27 +24,7 @@ spark = get_spark("user-events-training")
 #contains: user_id, new_episode_id, day, engagemnt, num_events, lst_ts, ...
 delta = spark.read.format("delta").load(DELTA_PATH_DAILY)
 
-# ---------- User history to Mongo ----------
-grouped_by_user = (
-    delta.groupBy("user_id","episode_id")
-         .agg(F.sum("engagement").alias("engagement"))
-         .dropna(subset=["user_id","episode_id"])
-         .filter(F.col("engagement") > MIN_HISTORY_ENGAGEMENT)
-)
-
-user_history = grouped_by_user.select("user_id", "episode_id").distinct()
-
-(user_history.write
-    .format("mongodb")
-    .mode("overwrite")  # daily snapshot; use "append" if you prefer incremental with upserts
-    .option("spark.mongodb.write.connection.uri", MONGO_URI)
-    .option("database", MONGO_DB)
-    .option("collection", MONGO_COLLECTION_USER_HISTORY)
-    .save()
-)
-
 #RATING FOR ALS
-
 ratings = (
     delta.groupBy("user_id","episode_id")
     .agg(F.sum("engagement").alias("engagement"))

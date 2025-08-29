@@ -42,8 +42,8 @@ raw = (
     .option("kafka.bootstrap.servers", KAFKA_URL)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
     .option("kafka.group.id", CONSUMER_GROUP_ID)
-    .option("startingOffsets", "earliest")   # or "latest" in prod
-    .option("maxOffsetsPerTrigger", "2000") # <-- bound batch size
+    .option("startingOffsets", "earliest")
+    .option("maxOffsetsPerTrigger", "20")
     .option("failOnDataLoss", "false")
     .load()
 )
@@ -148,7 +148,6 @@ def process_batch(batch_df, batch_id):
         .agg(F.max("ts").alias("last_ts"))
         .dropna(subset=["user_id", "episode_id"])
     )
-    hist_candidates = hist_candidates.dropna(subset=["user_id", "episode_id"])
 
     # Collect small distinct set and upsert to Mongo (idempotent)
     pairs = hist_candidates.select("user_id", "episode_id", "last_ts").toLocalIterator()
