@@ -1,21 +1,27 @@
+# ./docker/spark-runner/Dockerfile
 FROM bitnami/spark:3.5.6
 
+# become root for installing Python deps
 USER root
 
-# Copy the requirements.txt into the image
-COPY ./requirements.txt /
+# install python deps
+COPY ./requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt \
+ && rm -f /requirements.txt
 
-RUN pip install --no-cache-dir -r /requirements.txt
+# optional: set Spark configs for Delta support
+ENV SPARK_CONF_DIR=/opt/bitnami/spark/conf
+ENV PYTHONUNBUFFERED=1
 
-# ENV PYSPARK_PYTHON=python3 \
-#     PYTHONPATH="/opt/spark_jobs:${PYTHONPATH}"
+# this env var makes spark-submit find Delta + Kafka + Mongo connector automatically
+ENV SPARK_PACKAGES="\
+io.delta:delta-spark_2.12:3.2.0,\
+org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,\
+org.mongodb.spark:mongo-spark-connector_2.12:10.3.0"
 
-# # app code
-# WORKDIR /opt/spark/app
+# working dir will match project mount
+WORKDIR /opt/project
 
-
-# # Entry point is spark-submit by default
-# ENTRYPOINT ["spark-submit"]
-
-# # Default to streaming pipeline, but overridable
-# CMD ["/opt/spark/app/streaming/streaming_user_events_pipeline.py"]
+# keep tini as entrypoint (already present in bitnami image)
+ENTRYPOINT ["/opt/bitnami/scripts/spark/entrypoint.sh"]
+CMD [ "bash" ]

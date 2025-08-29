@@ -1,34 +1,6 @@
 version: "3.8"
 
 services:
-  spark-master:
-    image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
-    container_name: spark-master
-    environment:
-      - SPARK_MODE=master
-    ports:
-      - "7077:7077"    # Spark master port
-      - "8080:8080"    # Spark web UI
-    networks:
-      - kafka-net
-
-  spark-worker-1:
-    image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
-    container_name: spark-worker-1
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - PYTHONPATH=/opt/project
-      - PYSPARK_PYTHON=python3
-    volumes:
-      - ${PWD}:/opt/project
-      - ${PWD}/data:/data
-    env_file:
-      - ../../.env.development
-    depends_on:
-      - spark-master
-    networks:
-      - kafka-net
 
   spark-streaming:
     image: ${SPARK_IMAGE_NAME}:${SPARK_IMAGE_TAG}
