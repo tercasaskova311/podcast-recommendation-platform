@@ -1,12 +1,12 @@
 # Podcast Analytics & Recommendation Platform
 
-This project builds an end-to-end data pipeline to recommend podcast episodes to users based on their interactions and preferences. The workflow includes:
+This project builds an end-to-end data pipeline to recommend podcast episodes to users based on their interactions and also podcasts content. The workflow includes:
 
 - Downloading new podcast episodes
 - Analyzing transcripts
 - Tracking user behavior (events)
 - Training recommendation models
-- Delivering real-time personalized content
+- Delivering real-time personalized recommendation for a podcasts episode
 
 ---
 ## Project Structure
@@ -19,27 +19,10 @@ root/
 ├── data/
 ├── docker/ # Docker-related configuration
 ├── docs/ # Documentation & diagrams
-│ ├── architecture.md
-│ ├── dashboard.md
-│ ├── datasets.md
-│ ├── instruction.md
-│ ├── pipelines.md
-│ └── project_architecture.png
 ├── scripts/
-│ └── batch/
-│ ├── new_episodes_download.py
-│ └── new_episodes_get_transcripts.py
 ├── spark/ # Spark pipelines for large-scale processing
 │ ├── pipelines/
-│ │ ├── analyze_transcripts_pipeline.py
-│ │ ├── final_recommendation.py
-│ │ ├── streaming_user_events_pipeline.py
-│ │ └── training_user_events_pipeline.py
-│ └── util/
-├── streaming/ # Real-time stream processing
 ├── demo/ # Demos or example runs
-├── test/ # Unit and integration tests
-├── util/ # Utility functions shared across modules
 ├── dashboard.py # Interactive dashboard
 ├── .env.development # Environment variables
 ├── .gitignore
@@ -49,16 +32,16 @@ root/
 
 ---
 
-## 🔄 Pipeline Overview
+## Pipeline Overview
 
-| Stage                          | Description                                                                 |
-|-------------------------------|-----------------------------------------------------------------------------|
+| Stage                        | Description                                                                |
+|------------------------------|----------------------------------------------------------------------------|
 |  Ingestion                   | Download new episodes, fetch transcripts                                   |
 |  Transcript Analysis         | NLP-based feature extraction using Spark                                   |
-|  User Events Streaming       | Real-time interaction data (views, clicks, time spent)                     |
-|  Model Training              | Collaborative filtering + content-based recommendation models             |
+|  User Events Streaming       | Simulation of Real-time interaction data (views, clicks, time spent)       |
+|  Model Training              | Collaborative filtering + content-based recommendation models              |
 |  Final Recommendation        | Scores and recommends episodes                                             |
-|  Dashboard                  | Interactive UI to explore recommendations and model metrics                |
+|  Dashboard                   | Interactive UI to explore recommendations and model metrics                |
 
 ---
 ##  Technologies
@@ -132,9 +115,6 @@ root/
 
 2. **Wait for Airflow init container**
    The container `airflow-airflow-init-1` will **exit** after initializing Airflow (expected). All other Airflow containers should be running.
-
-> Prefer manual bring-up?
-> `make kafka-up mongo-up airflow-up` → then `make spark-up` and `make dashboard-up`.
 
 ---
 
