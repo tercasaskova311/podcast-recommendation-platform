@@ -12,9 +12,9 @@ from config.settings import (
     MONGO_URI,MONGO_DB, MONGO_COLLECTION_USER_EVENTS,
 )
 
-ALS_RANK      = 64
+ALS_RANK      = 32
+ALS_MAX_ITER  = 10
 ALS_REG       = 0.08
-ALS_MAX_ITER  = 15
 ALS_ALPHA     = 40.0
 MIN_ENGAGEMENT= 1e-6
 
@@ -39,24 +39,52 @@ item_indexer   = StringIndexer(inputCol="episode_id",outputCol="item_idx", handl
 
 pipeline = Pipeline(stages=[user_indexer, item_indexer])
 fitted  = pipeline.fit(ratings)
-data    = fitted.transform(ratings)
 
-# Save the id maps to decode recs later (important!)
-users_map = (data.select("user_id","user_idx").dropDuplicates())
-items_map = (data.select("episode_id","item_idx").dropDuplicates())
+# index + keep original ids
+indexed = (
+    fitted.transform(ratings)
+    .select("user_id", "episode_id", "user_idx", "item_idx", "engagement")
+)
+
+# build maps BEFORE dropping ids
+users_map = indexed.select("user_id", "user_idx").dropDuplicates()
+items_map = indexed.select("episode_id", "item_idx").dropDuplicates()
+
+# cast/clean for ALS
+data = (
+    indexed
+    .select(
+        F.col("user_idx").cast("int").alias("user_idx"),
+        F.col("item_idx").cast("int").alias("item_idx"),
+        F.col("engagement").cast("float").alias("engagement"),
+    )
+    .dropna(subset=["user_idx", "item_idx", "engagement"])
+    .filter(F.col("engagement") >= 0)
+    .filter(F.col("user_idx") >= 0)
+    .filter(F.col("item_idx") >= 0)
+)
+
+if data.rdd.isEmpty():
+    raise RuntimeError("No training data after filtering/casting.")
+
+# (optional) checkpoint + conservative params if you had crashes before
+spark.sparkContext.setCheckpointDir("/tmp/spark-checkpoints")
 
 # -------- 3) Train ALS (implicit feedback) ------------------------------
 als = ALS(
     userCol="user_idx",
     itemCol="item_idx",
     ratingCol="engagement",
-    rank=ALS_RANK, #latent dimension per user/item 
-    maxIter=ALS_MAX_ITER, #iterations to converge
-    regParam=ALS_REG, #regularization to prevent overfitting
-    implicitPrefs=True, 
-    alpha=ALS_ALPHA, #scaling factor
+    rank=ALS_RANK,
+    maxIter=ALS_MAX_ITER,
+    regParam=ALS_REG,
+    implicitPrefs=True,
+    alpha=ALS_ALPHA,
     nonnegative=True,
-    coldStartStrategy="drop" #drop unseen users/items - prevent NaNs
+    numUserBlocks=4,
+    numItemBlocks=4,
+    checkpointInterval=2,
+    coldStartStrategy="drop",
 )
 
 model = als.fit(data)
@@ -65,22 +93,20 @@ model = als.fit(data)
 model.write().overwrite().save(ALS_MODEL_PATH)
 fitted.write().overwrite().save(ALS_MODEL_PATH + "_indexers")
 
-
-# -------- 4) Top-N per user (decode ids) --------------------------------
+# decode recs using the maps you kept
 raw_user_recs = model.recommendForAllUsers(N_RECOMMENDATION_FOR_USER)
-#produce column: recommendations: [{"item_idx": 17, "rating": 4.8}, {"item_idx": 52, "rating": 4.5}, ...]
-#TOP N episodes personalized fro each user
+
 user_recs = (
     raw_user_recs
     .withColumn("rec", F.explode("recommendations"))
     .select(
         F.col("user_idx"),
         F.col("rec.item_idx").alias("item_idx"),
-        F.col("rec.rating").alias("als_score")
+        F.col("rec.rating").alias("als_score"),
     )
     .join(users_map, "user_idx")
     .join(items_map, "item_idx")
-    .select("user_id","episode_id","als_score")
+    .select("user_id", "episode_id", "als_score")
 )
 
 # Save to Mongo 
@@ -92,3 +118,4 @@ user_recs = (
     .option("collection", MONGO_COLLECTION_USER_EVENTS)
     .save()
 )
+print("Save to mongo")

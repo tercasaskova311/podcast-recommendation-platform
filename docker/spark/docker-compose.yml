@@ -18,10 +18,10 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
-
+      - PYTHONPATH=/opt/project
+      - PYSPARK_PYTHON=python3
     volumes:
-      - ${PWD}/spark:/opt/spark_jobs
-      - ${PWD}/scripts:/opt/scripts
+      - ${PWD}:/opt/project
       - ${PWD}/data:/data
     env_file:
       - ../../.env.development
