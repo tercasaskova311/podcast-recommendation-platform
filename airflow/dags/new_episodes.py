@@ -4,8 +4,6 @@ from airflow.operators.bash import BashOperator
 from airflow.utils.dates import days_ago
 import yaml
 
-from config.settings import SPARK_URL
-
 with open('/opt/airflow/config/schedule_config.yaml') as f:
     config = yaml.safe_load(f)
 
@@ -36,18 +34,13 @@ with DAG(
         name="process_similarities",
         packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
         conf={
-            "spark.master": SPARK_URL,
-            "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
-            "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
-            "spark.sql.session.timeZone": "UTC",
+            "spark.master": "local[*]",
             "spark.driver.memory": "6g",
             "spark.driver.memoryOverhead": "2g",
         },
-        env_vars={
-            "SPARK_SUBMIT_MODE": "1",          # tells get_spark() not to set master/jars
-            "PYTHONPATH": "/opt/project"
-        },
+        env_vars={"PYTHONPATH": "/opt/project"},
         verbose=True,
     )
+    
 
     download_metadata >> get_transcripts >> process_similarities

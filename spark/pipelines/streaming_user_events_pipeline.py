@@ -2,21 +2,21 @@ from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import *
 from delta.tables import DeltaTable
 
-from spark.config.settings import (
-    KAFKA_SERVERS, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
-    USER_EVENT_STREAM,
-    LIKE_W, COMPLETE_W, SKIP_W, PAUSE_SEC_CAP
+from config.settings import (
+    KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
+    USER_EVENT_STREAM
 )
+from spark.util.common import get_spark
+
+LIKE_W        = 3.0
+COMPLETE_W    = 2.0
+SKIP_W        = -1.0
+PAUSE_SEC_CAP = 600.0
+
+CONSUMER_GROUP_ID = 'user-events-streamer'
 
 # ----------------- Spark Session -----------------
-spark = (
-    SparkSession.builder
-    .appName("Streaming-user-events")
-    .config("spark.sql.session.timeZone", "UTC")
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    .getOrCreate()
-)
+spark = get_spark("Streaming-user-events")
 
 # ----------------- Schema -----------------
 # Describe the JSON in Kafka. 
@@ -37,19 +37,26 @@ schema = StructType([
 # ----------------- Read Kafka Stream -----------------
 raw = (
     spark.readStream.format("kafka")
-    .option("kafka.bootstrap.servers", KAFKA_SERVERS)
+    .option("kafka.bootstrap.servers", KAFKA_URL)
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
-    .option("startingOffsets", "latest") #start from latest offsets
+    .option("kafka.group.id", CONSUMER_GROUP_ID)
+    .option("startingOffsets", "earliest") #start from latest offsets
     .option("failOnDataLoss", "false")
     .load()
 )
 
 # ----------------- Parse JSON + Dedup -----------------
+ts_ms = F.regexp_replace(
+    F.col("ts"),
+    r'\.(\d{3})\d+(?=(?:[+-]\d{2}:\d{2}|Z)$)',   # keep first 3 frac digits before timezone
+    r'.\1'
+)
+
 parsed = (
     raw.selectExpr("CAST(value AS STRING) AS json")
        .select(F.from_json("json", schema).alias("e"))
        .select("e.*")
-       .withColumn("ts", F.to_timestamp("ts"))
+        .withColumn("ts", F.to_timestamp(ts_ms, "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"))
        .withWatermark("ts", "2 hours")  # handle late events up to 2h
        .dropDuplicates(["event_id"])    # prevent double-counting
 )
@@ -71,6 +78,18 @@ scored = (
     .withColumn("day", F.to_date("ts"))
 )
 
+# Initialize Delta table if it doesn't exist
+try:
+    DeltaTable.forPath(spark, DELTA_PATH_DAILY)
+except Exception:
+    (spark.createDataFrame([], """
+        user_id string, episode_id string, day date,
+        engagement double, num_events long, last_ts timestamp,
+        created_at timestamp, updated_at timestamp
+    """)
+     .write.format("delta").partitionBy("day").mode("overwrite").save(DELTA_PATH_DAILY))
+    
+
 # ----------------- Process Each Micro-Batch -----------------
 def process_batch(batch_df, batch_id):
     if batch_df.rdd.isEmpty():
@@ -86,18 +105,7 @@ def process_batch(batch_df, batch_id):
     )
 
     spark = batch_df.sparkSession
-
-    # Initialize Delta table if it doesn't exist
-    try:
-        tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
-    except Exception as e:
-        print(f"[INFO] Creating Delta table: {e}")
-        (daily.withColumn("created_at", F.current_timestamp())
-              .withColumn("updated_at", F.current_timestamp())
-              .write.format("delta")
-              .mode("overwrite")
-              .save(DELTA_PATH_DAILY))
-        tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
+    tgt = DeltaTable.forPath(spark, DELTA_PATH_DAILY)
 
     # Merge new data into table (upsert)
     (
@@ -130,7 +138,7 @@ q = (
     scored.writeStream
           .foreachBatch(process_batch)
           .option("checkpointLocation", USER_EVENT_STREAM)
-          .trigger(processingTime="2 seconds")    
+          .trigger(processingTime="30 seconds")    
           .start()
 )
 

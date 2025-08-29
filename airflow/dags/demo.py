@@ -4,8 +4,6 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow.operators.bash import BashOperator
 from airflow.utils.dates import days_ago
 
-from config.settings import SPARK_URL
-
 with DAG('demo',
         schedule_interval=None,
         start_date = days_ago(1),
@@ -26,19 +24,14 @@ with DAG('demo',
         name="process_similarities",
         packages="io.delta:delta-spark_2.12:3.1.0,org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
         conf={
-            "spark.master": SPARK_URL,
-            "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
-            "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
-            "spark.sql.session.timeZone": "UTC",
+            "spark.master": "local[*]",
             "spark.driver.memory": "6g",
             "spark.driver.memoryOverhead": "2g",
         },
-        env_vars={
-            "SPARK_SUBMIT_MODE": "1",          # tells get_spark() not to set master/jars
-            "PYTHONPATH": "/opt/project"
-        },
+        env_vars={"PYTHONPATH": "/opt/project"},
         verbose=True,
     )
+    
 
     #SIMULATE USER EVENTS
     simulate_user_events = BashOperator(
