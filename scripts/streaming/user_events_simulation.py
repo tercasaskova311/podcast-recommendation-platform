@@ -5,6 +5,8 @@ from typing import List
 from faker import Faker
 from kafka import KafkaProducer
 from pymongo import MongoClient
+import time
+import os
 
 from config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, 
@@ -14,6 +16,8 @@ from config.settings import (
 
 )
 
+WINDOW_SEC = 300  # 5 minutes default
+JITTER = 0.5  # 50% jitter around average delay
 EP_COLL  = MONGO_COLLECTION_SIMILARITIES
 EP_FIELD = "new_episode_id"
 
@@ -61,18 +65,27 @@ def generate_events(
     episodes: List[str],
     num_users: int = NUM_USERS,
     min_eps: int = MIN_EPS_PER_USER,
-    max_eps: int = MAX_EPS_PER_USER
+    max_eps: int = MAX_EPS_PER_USER,
+    window_sec: int = WINDOW_SEC,
 ) -> None:
     if not episodes:
         print("[ERROR] No episode_ids available to generate events.")
         sys.exit(1)
 
+    # --- plan counts first so pacing is accurate ---
+    user_ids = [str(uuid.uuid4()) for _ in range(num_users)]
+    events_per_user = {uid: random.randint(min_eps, max_eps) for uid in user_ids}
+    total_events = sum(events_per_user.values())
+    if total_events <= 0:
+        print("[WARN] No events planned (min/max too low?).")
+        return
 
-    user_ids = [str(uuid.uuid4()) for _ in range(NUM_USERS)]
+    avg_delay = float(window_sec) / total_events  # average spacing between events
 
     for uid in user_ids:
-        device = random.choice(["ios","android","web"])
-        n = random.randint(min_eps, max_eps)
+        device = random.choice(["ios", "android", "web"])
+        n = events_per_user[uid]
+
         for _ in range(n):
             ep = random.choice(episodes)
             e  = random.choice(EVENTS)
@@ -82,11 +95,11 @@ def generate_events(
                 "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
                 "user_id": uid,
                 "episode_id": ep,
-                "event": e,                     # one action per message
-                "device": device
+                "event": e,
+                "device": device,
             }
             if e == "rate":
-                msg["rating"] = random.choice([1,2,3,4,5])
+                msg["rating"] = random.choice([1, 2, 3, 4, 5])
             elif e == "pause":
                 msg["position_sec"] = random.randint(0, 3600)
             elif e == "skip":
@@ -96,11 +109,17 @@ def generate_events(
             elif e == "complete":
                 msg["played_pct"] = 1.0
 
-            # key by user for per-user ordering
-            producer.send(TOPIC_USER_EVENTS_STREAMING, key=uid.encode("utf-8") if uid else None, value=msg)
+            # key by user for per-user ordering; pace with jitter
+            producer.send(TOPIC_USER_EVENTS_STREAMING, key=uid.encode("utf-8"), value=msg)
+
+            # jittered spacing so the stream doesn't look perfectly regular
+            sleep_s = random.uniform((1 - JITTER) * avg_delay, (1 + JITTER) * avg_delay)
+            if sleep_s > 0:
+                time.sleep(sleep_s)
 
     producer.flush()
-    print(f"[INFO] Sent events for {len(user_ids)} users over {len(episodes)} episodes.")
+    print(f"[INFO] Sent {total_events} events for {len(user_ids)} users over {len(episodes)} episodes in ~{window_sec}s.")
+
 
 # ---------- Main ----------
 if __name__ == "__main__":

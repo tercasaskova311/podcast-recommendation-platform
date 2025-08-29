@@ -1,8 +1,7 @@
-from pyspark.sql import SparkSession, functions as F, types as T
-from pyspark.ml.recommendation import ALS #ALS => alternating least squares = collaborative filtering
+from pyspark.sql import SparkSession, functions as F
+from pyspark.ml.recommendation import ALS
 from pyspark.ml.feature import StringIndexer
 from pyspark.ml import Pipeline
-from delta.tables import DeltaTable
 
 from spark.util.common import get_spark
 
@@ -17,6 +16,7 @@ ALS_MAX_ITER  = 10
 ALS_REG       = 0.08
 ALS_ALPHA     = 40.0
 MIN_ENGAGEMENT= 1e-6
+MIN_HISTORY_ENGAGEMENT = 1e-6     
 
 spark = get_spark("user-events-training")
 
@@ -24,15 +24,33 @@ spark = get_spark("user-events-training")
 #contains: user_id, new_episode_id, day, engagemnt, num_events, lst_ts, ...
 delta = spark.read.format("delta").load(DELTA_PATH_DAILY)
 
-#why grouping again: delta stores daily engagemnt => ALD needs one row per user = we sum across days
-# rating: sum(engagemnt) per user_id + episoded_id
+# ---------- User history to Mongo ----------
+grouped_by_user = (
+    delta.groupBy("user_id","episode_id")
+         .agg(F.sum("engagement").alias("engagement"))
+         .dropna(subset=["user_id","episode_id"])
+         .filter(F.col("engagement") > MIN_HISTORY_ENGAGEMENT)
+)
+
+user_history = grouped_by_user.select("user_id", "episode_id").distinct()
+
+(user_history.write
+    .format("mongo")
+    .mode("overwrite")  # daily snapshot; use "append" if you prefer incremental with upserts
+    .option("uri", MONGO_URI)
+    .option("database", MONGO_DB)
+    .option("collection", "user_history_snapshot")  # <-- add to settings as MONGO_COLLECTION_USER_HISTORY
+    .save()
+)
+
+#RATING FOR ALS
+
 ratings = (
     delta.groupBy("user_id","episode_id")
     .agg(F.sum("engagement").alias("engagement"))
     .filter(F.col("engagement") > MIN_ENGAGEMENT) #removes weak signals
 )
-
-# -------- 2) Index string ids -> integer ids for ALS --------------------
+#Index string ids -> integer ids for ALS
 #ALS cannot handle strings IDs = convert to idx
 user_indexer   = StringIndexer(inputCol="user_id",   outputCol="user_idx", handleInvalid="skip")
 item_indexer   = StringIndexer(inputCol="episode_id",outputCol="item_idx", handleInvalid="skip")
@@ -70,7 +88,7 @@ if data.rdd.isEmpty():
 # (optional) checkpoint + conservative params if you had crashes before
 spark.sparkContext.setCheckpointDir("/tmp/spark-checkpoints")
 
-# -------- 3) Train ALS (implicit feedback) ------------------------------
+#Train ALS 
 als = ALS(
     userCol="user_idx",
     itemCol="item_idx",
