@@ -95,64 +95,20 @@ root/
 * If your network uses a corporate/VPN proxy, ensure Docker can pull from Docker Hub (see **Troubleshooting**)
 
 ---
+# HOW TO RUN THE INFRASTRUCTURE
 
-## Instructions to Run the Infrastructure
+1. Run **make init** (wait until it finishes).  
+   The only container that should be stopped after this command is `airflow-airflow-init-1` (it is only used to initialize Airflow).  
 
-### Initialize the system
+2. Connect to the Airflow interface at `http://localhost:8081`  
+   (username: `airflow`, password: `airflow`).  
+   Go to **Admin > Connections**, search for `spark_default`, click **Edit parameter**, and change the value in the **host** field to `local[*]`. Save it.  
 
-1. **Start Docker**, then from the repo root:
-
-   ```bash
-   make init
-   ```
-
-   This:
-
-   * builds/starts **Kafka**, **Mongo**, **Airflow** (and Spark build)
-   * waits for **Kafka** quorum and **creates topics** (correct partitions/retention)
-   * **initializes MongoDB indexes**
-   * starts the **Streamlit** dashboard and opens it (if reachable)
-
-2. **Wait for Airflow init container**
-   The container `airflow-airflow-init-1` will **exit** after initializing Airflow (expected). All other Airflow containers should be running.
+3. Go to the **DAGs** page, run the demo DAG that initializes the system, and once it has finished, run the recommendation DAG.  
 
 ---
 
-## Run Demo Data (manual first run)
+### LAST STEP  
+After these operations, we have simulated the functionality of the system.  
+To check the results, go to `http://localhost:8084`.  
 
-1. **Load demo Delta** (inside the Airflow scheduler container)
-
-   ```bash
-   docker exec -it airflow-airflow-scheduler-1 bash
-   cd /opt/project
-   python3 scripts/demo/load_delta.py
-   ```
-
-2. **Analyze transcripts** (Spark batch)
-
-   ```bash
-   python3 spark/pipelines/analyze_transcripts_pipeline.py
-   ```
-
-   After success, inspect Mongo (localhost UI if available, or `make mongo-shell`).
-
-3. **Simulate user events** (streaming)
-
-   ```bash
-   python3 scripts/streaming/user_events_simulation.py
-   ```
-
-   Wait a couple of minutes; you should see `/data/delta/user_vs_episode_daily` populated.
-
-4. **Train similarities & compute final recommendations**
-
-   ```bash
-   python3 spark/pipelines/training_user_events_pipeline.py
-   python3 spark/pipelines/final_recommendation.py
-   ```
-
-   MongoDB should now have **`final_recommendations`** populated.
-
-After these, your **dashboard** can filter/view recommendations + live engagement windows.
-
----

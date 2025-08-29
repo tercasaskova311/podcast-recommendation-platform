@@ -1,9 +1,21 @@
 # INSTRUCTIONS TO RUN THE INFRASTRUCTURE
 
-## INITIALIZE THE SYSTEM
-1. First of all, delete all the contents of the project folder `data/delta`.
-2. Start Docker, and when it’s ready, run **make init** from the CLI in the root of the project.
-3. Wait until the container `airflow-airflow-init-1` exits (this is normal, as it initializes the Airflow system). After that, you should see all the other containers running.
+# HOW TO RUN THE INFRASTRUCTURE
+
+1. Run **make init** (wait until it finishes).  
+   The only container that should be stopped after this command is `airflow-airflow-init-1` (it is only used to initialize Airflow).  
+
+2. Connect to the Airflow interface at `http://localhost:8081`  
+   (username: `airflow`, password: `airflow`).  
+   Go to **Admin > Connections**, search for `spark_default`, click **Edit parameter**, and change the value in the **host** field to `local[*]`. Save it.  
+
+3. Go to the **DAGs** page, run the demo DAG that initializes the system, and once it has finished, run the recommendation DAG.  
+
+---
+
+### LAST STEP  
+After these operations, we have simulated the functionality of the system.  
+To check the results, go to `http://localhost:8084`.  
 
 ## RUN DEMO DATA
 For now, we have to run all the scripts manually:

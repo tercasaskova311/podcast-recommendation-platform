@@ -1,125 +1,134 @@
-# GROUP MEETING
-# 28-05-2025 – Phase 1
-We discussed the architecture proposed by Tommaso and decided how to split the tasks within the group:
+# Architecture 
 
-- Terka is working on the transcripts component.
-- Matteo is working on the simulations component.
-- Tommaso is working on the Kafka infrastructure.
+**Ingestion**
 
-## KAFKA PART
-We aim to simulate a real and scalable scenario by configuring a Kafka cluster with 3 brokers, each running in a Docker container. This setup will allow us to test how the system reacts to network failures—for example, simulating what happens if one broker goes offline.
+* **Transcripts:** PodcastIndex → **Kafka** → ASR (**Fast-Whisper**) → **Delta**.
+* **User events:** Simulated/real events → Kafka/**Spark Streaming** → **Delta**.
 
-Since the project is starting from scratch, we will use the latest stable release of Kafka, which includes KRaft (Kafka Raft metadata mode). This feature allows us to manage the cluster without ZooKeeper, simplifying the architecture.
+**Model training**
 
-### Our Kafka Architecture
-We decided to start with a 3-broker cluster, where all brokers also act as KRaft controllers. Only one controller is active at any time, responsible for managing the Kafka cluster's metadata and operations. This improves fault tolerance and simplifies deployment.
+* **Behavior:** **ALS (Spark ML)** on event aggregates → **MongoDB** (`als_top_n`).
+* **Content:** **Embeddings + KNN** on transcripts → **MongoDB** (`similarities`).
 
-### Why Kafka?
-We chose Kafka because it is a pub/sub-based messaging system that decouples producers and consumers. It is ideal for building horizontally scalable systems.
+**Recommendation**
 
-Compared to other technologies like MQTT, Kafka is more sophisticated. It provides:
+* **Final ranking:** Weighted join (ALS + similarity) → **user–episode** pairs → **MongoDB** (`final_recommendations`).
 
-- Message durability
-- High throughput
-- Built-in scalability and fault tolerance
+**Serving**
 
-Another advantage of Kafka is that it does not differentiate between batch and streaming data—both are handled in the same way. The key distinction lies in how producers and consumers process the data.
+* **App:** **Streamlit** reads MongoDB for recs.
+* **Analytics:** **DuckDB** reads **Delta** (events/transcripts) for fast, lightweight charts.
 
+---
 
+## Why These Technologies?
 
-### Topics
-Next, we need to define the logic and pipeline structure for the project. We'll use four Kafka topics:
+### Kafka — “reliable conveyor belt”
 
-- user-events-stream
-- podcast-metadata
-- transcripts-foreign
-- transcripts-en
+* **Role:** Event transport (ingestion + replay).
+* **Why:** Back-pressure friendly, consumer groups for parallel workers, *replay by offset* for deterministic reprocessing.
+* **Trade-offs:** Not a data lake; keep retention sane and land truth in Delta.
 
-We decided to separate transcripts by language because they will be processed by different consumer services.
+### Delta Lake — “warehouse with labeled aisles”
 
-### Replication and Fault Tolerance
-To ensure fault tolerance, we will set the replication factor to 3 for each topic.
+* **Role:** ACID data lake for transcripts, events, and embeddings.
+* **Why:** Schema evolution, time-travel for reproducibility (train on version N), scalable Parquet under the hood.
+* **Trade-offs:** Best with columnar/append patterns; use merge/upsert judiciously.
 
-Kafka allows producers to:
+### Spark (+ Structured Streaming) — “parallel assembly line”
 
-- Not specify a partition (default is round-robin),
-- Specify a key (ensuring that all messages with the same key go to the same partition, preserving order),
-- Or specify a specific partition.
+* **Role:** Batch ETL, streaming aggregation, and **ML (ALS)**.
+* **Why:** One engine for stream + batch; integrates with Delta; distributed ALS scales beyond single-machine RAM.
+* **Trade-offs:** Spin-up/overhead for tiny reads—use DuckDB for interactive analytics.
 
-Depending on the use case, we will decide whether message order matters.
+### Fast-Whisper (faster-whisper) — “efficient transcription”
 
-### Topic-by-Topic Strategy
+* **Role:** Speech-to-text for podcast audio.
+* **Why:** Optimized inference (CTranslate2), strong accuracy for long-form audio, **local** (no vendor lock-in), fits batch pipeline.
+* **Alt considered:** Cloud STT (faster to start, \$\$\$ at scale), WhisperX (alignment/timestamps) if you need word-level timing.
 
-**transcripts-foreign & transcripts-en:**
+### Embeddings + KNN — “content map”
 
-- Order not important
-- Batch data, high volume
-- Use round-robin for distribution
-- Use more partitions to parallelize processing
+* **Role:** Turn text into vectors → find semantically similar episodes.
+* **Why:** Solves **cold-start** and topical discovery; complements behavior-only models.
+* **Trade-offs:** Choose model size vs. latency; maintain versioned embeddings.
 
-**podcast-metadata**
+### ALS (Spark ML) — “crowd wisdom”
 
-- Order not important
-- Low volume, low throughput
-- Use round-robin, fewer partitions
-- **Set retention to infinite so that the producer can check for already processed episodes and only send new ones**
+* **Role:** Collaborative filtering from user–episode interactions.
+* **Why:** Well-understood, scalable on Spark, handles implicit feedback (weights from plays/likes).
+* **Alt considered:** BPR/MF variants, neural recommenders; ALS wins on simplicity + scaling for this phase.
 
-**user-events-stream**
+### MongoDB — “fast storefront”
 
-- High volume, streaming data
-- Order is important per user (Use user ID as key to guarantee message order per user)
-- Use more partitions to ensure scalability
+* **Role:** Low-latency store for app-facing results (similarities, ALS, final recs).
+* **Why:** JSON-first, simple overwrite/update patterns, easy indexing for user/episode queries.
+* **Trade-offs:** Keep heavy analytics out; that’s what Delta/DuckDB/Spark are for.
 
-*We verified through documentation that this approach won’t cause overload, assuming a normal distribution of user activity*
+### DuckDB — “pocket analytics lab”
 
-## CONSUMER LOGIC
-Kafka is responsible for partition assignment when a consumer group subscribes to a topic. Kafka ensures that:
+* **Role:** In-process SQL over Delta/Parquet for dashboards and ad-hoc analysis.
+* **Why:** Zero cluster, columnar speed, ideal for Streamlit; avoids waking Spark.
+* **Trade-offs:** Single-process memory; great for reads, not a transactional store.
 
-- Each partition is assigned to exactly one consumer within a consumer group
-- If a consumer fails, Kafka will rebalance the partitions across the remaining consumers
+### Streamlit — “interactive window”
 
+* **Role:** UI for recommendations + live analytics.
+* **Why:** Rapid dev, Python-native, easy to wire Mongo + DuckDB.
+* **Trade-offs:** For heavier frontends/APIs you may outgrow it.
 
-## MONGODB PART
-We decided to store the aggregated data, which needs to be accessed by dashboards for content creators and by filtering/recommendation systems, in MongoDB—a NoSQL database optimized for document storage.
+---
 
-The advantages of this solution include:
+## Data Contracts (at a glance)
 
-- A flexible schema, which is ideal for evolving data models
-- Fast read performance, making it suitable for analytics and recommendation queries
-- Horizontal scalability through built-in sharding capabilities (not implemented in our project)
+* **Kafka topics:**
+  `episode-metadata` (podcast/episode JSON), `user-events` (like/play/skip…).
+* **Delta tables:**
+  `episodes`, `transcripts`, `user_vs_episode_daily`, `vectors` (embeddings).
+* **Mongo collections:**
+  `similarities`, `als_top_n`, `final_recommendations`.
 
+---
 
-## SPARK PART
-The core idea is to create a Spark cluster with a Spark master acting as the cluster manager (responsible for resource management and job scheduling) and multiple workers executing the jobs.
+## Modeling Notes
 
-For our project, we simulate a scalable system using 1 master and 3 workers.
-By connecting to localhost:8080, we can access the Spark Master Web UI to monitor the state of the cluster.
+**Event weighting (implicit feedback → ALS):**
 
-### Why Spark?
-Apache Spark allows us to decouple the computation engine (which performs the actual operations) from the client (the driver program that submits the jobs). This separation is useful because we chose to use Python for the driver, but in the future, we could switch to a different language without modifying the Spark cluster itself.
+* Example: `play_>80% = 3`, `like = 2`, `play_<20% = 0.5`, `skip = 0.2`.
+* Aggregate to daily `user×episode` scores before training ALS.
 
-### Why not Hadoop?
-We opted for Spark instead of Hadoop because:
+**Hybrid fusion (ALS ⊕ Content):**
 
-- Spark is significantly faster, thanks to in-memory processing
-- Spark has native support for streaming, making it easier to unify batch and streaming workloads
+* `final_score = α·als_score + (1–α)·cosine_similarity`, with `α≈0.6–0.8` to start.
+* Calibrate by validation clicks or simulated CTR.
 
-### Parallelization and Partitioning
-Using Kafka partitions, we can parallelize data processing in Spark.
-For example, the **user-events-stream** topic has 24 partitions, which allows Spark to execute up to 24 parallel tasks to read and process the data efficiently.
+---
 
-### Job Scheduling Strategy
-To make our system as efficient as possible, we avoid keeping batch services running all the time. Since new episodes are ingested only once a day, batch jobs are scheduled to run daily and process only the new data.
+## Performance & Scaling
 
-### Execution Strategy
-We created a general script called main.py that, based on a parameter, selects which job to run.
+* **What breaks first:** the **ASR pipeline** (audio → text) when episode volume spikes—compute & I/O heavy.
+* **Mitigations:** batched downloads, GPU/CPU pools, chunking, retry queues, and Airflow backfills.
+* **Read efficiency:** use **DuckDB** for small, interactive panels; reserve **Spark** for heavy transforms/training.
 
-- Streaming job (user-events): Runs continuously in a dedicated Docker container, always ready to consume data from Kafka.
+---
 
-- Batch jobs (transcripts-foreign, transcripts-en, podcast-metadata): Run once per day in separate Docker containers and each batch job has its own driver program that starts and stops as needed.
+## Example (30s)
 
-- Summary job: Reads processed data directly from Delta Lake (not Kafka) to compute aggregates and summaries for dashboards and recommendations. It also runs in its own Docker container.
+1. New episode lands → Kafka → **Fast-Whisper** → transcript → **Delta**.
+2. Embeddings computed → **KNN** similar episodes → **Mongo** (`similarities`).
+3. User events stream in → Spark aggregates → **ALS** top-N → **Mongo** (`als_top_n`).
+4. **Final join** (ALS + similarity) → **Mongo** (`final_recommendations`) → **Streamlit** renders.
 
-To support scalability, the Spark workers can be scaled horizontally by adding more containers. Each driver program runs independently per job.
+---
 
-For the batch and summary jobs, we use Docker container templates, built once for efficiency. These containers are instantiated only when needed, minimizing resource usage.
+## Appendix: Key Files
+
+* **Ingestion:** `scripts/batch/new_episodes_transcript_download.py` (calls `util/transcription.process_batch`).
+* **Transcripts analysis:** `spark/pipelines/analyze_transcripts_pipeline.py`.
+* **Events streaming:** `spark/pipelines/streaming_user_events_pipeline.py`.
+* **ALS training:** `spark/pipelines/training_user_events_pipeline.py`.
+* **Fusion:** `spark/pipelines/final_recommendation.py`.
+* **Dashboard:** `dashboard.py` (Mongo + DuckDB).
+
+---
+
