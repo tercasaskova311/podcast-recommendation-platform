@@ -1,18 +1,86 @@
 # Podcast Analytics & Recommendation Platform
 
-This project implements a scalable data platform for analyzing podcast content, tracking user behavior, and providing intelligent recommendations to listeners and content producers.
+This project builds an end-to-end data pipeline to recommend podcast episodes to users based on their interactions and preferences. The workflow includes:
 
-End-to-end podcast ingestion, transcription, similarity/recs, and a **Streamlit** dashboard. The stack uses **Kafka** (events), **Delta Lake** (storage), **DuckDB** (fast windowed reads), **Spark** (batch), **Airflow** (orchestration), and **MongoDB** (serving layer).
+- Downloading new podcast episodes
+- Analyzing transcripts
+- Tracking user behavior (events)
+- Training recommendation models
+- Delivering real-time personalized content
+
+---
+## Project Structure
+
+root/
+├── _delta/ # Delta Lake tables (episodes, events)
+├── airflow/ # Apache Airflow config for DAG orchestration
+├── config/
+│ └── settings.py # General project settings
+├── data/
+├── docker/ # Docker-related configuration
+├── docs/ # Documentation & diagrams
+│ ├── architecture.md
+│ ├── dashboard.md
+│ ├── datasets.md
+│ ├── instruction.md
+│ ├── pipelines.md
+│ └── project_architecture.png
+├── scripts/
+│ └── batch/
+│ ├── new_episodes_download.py
+│ └── new_episodes_get_transcripts.py
+├── spark/ # Spark pipelines for large-scale processing
+│ ├── pipelines/
+│ │ ├── analyze_transcripts_pipeline.py
+│ │ ├── final_recommendation.py
+│ │ ├── streaming_user_events_pipeline.py
+│ │ └── training_user_events_pipeline.py
+│ └── util/
+├── streaming/ # Real-time stream processing
+├── demo/ # Demos or example runs
+├── test/ # Unit and integration tests
+├── util/ # Utility functions shared across modules
+├── dashboard.py # Interactive dashboard
+├── .env.development # Environment variables
+├── .gitignore
+├── Makefile # Dev shortcuts (build, test, run)
+├── requirements.txt
+└── README.md
 
 ---
 
-## Project Overview
+## 🔄 Pipeline Overview
 
-The system ingests both **real-time events** (from users) and **batch transcripts + metadata** (about podcasts), processes the data using **Apache Spark**, stores it in **Delta Lake**, and then exposes structured insights and personalized recommendations via **MongoDB** to be consumed by frontend applications.
+| Stage                          | Description                                                                 |
+|-------------------------------|-----------------------------------------------------------------------------|
+|  Ingestion                   | Download new episodes, fetch transcripts                                   |
+|  Transcript Analysis         | NLP-based feature extraction using Spark                                   |
+|  User Events Streaming       | Real-time interaction data (views, clicks, time spent)                     |
+|  Model Training              | Collaborative filtering + content-based recommendation models             |
+|  Final Recommendation        | Scores and recommends episodes                                             |
+|  Dashboard                  | Interactive UI to explore recommendations and model metrics                |
+
+---
+##  Technologies
+
+| Area            | Tools Used                           |
+|-----------------|--------------------------------------|
+| Workflow        | Apache Airflow                       |
+| Storage         | Delta Lake (with `_delta` tables),   |
+|                 | MongoDB, DuckDB                      |
+| Processing      | Apache Spark, Kafka                  |
+| Containerization| Docker                               |
+| NLP             | Transformers / Text Processing       |
+| Real-time       | Spark Streaming                      |
+| UI              | Streamlit                            |
 
 ---
 
 ## Architecture
+
+## Architecture Diagram
+
+![Architecture Diagram](./docs/project_architecture.png)
 
 ### Ingest
 
@@ -34,22 +102,6 @@ The system ingests both **real-time events** (from users) and **batch transcript
 * **MongoDB** stores the `final_recommendations` data which combine similarities recommendation + user event recommendation
 * **Streamlit** reads **Mongo** (final_recommendation) + **Delta** (user_events “last N minutes”, episodes metadata) via **DuckDB**
 
----
-
-## Architecture Diagram
-
-![Architecture Diagram](./docs/project_architecture.png)
-
----
-
-## Technologies Used
-
-* **Runtime:** Python, Spark
-* **Storage:** Delta Lake, MongoDB
-* **Messaging:** Kafka
-* **Orchestration:** Airflow
-* **Serving:** MongoDB, Streamlit
-* **Fast ad-hoc SQL over files:** DuckDB
 
 ---
 
@@ -124,110 +176,3 @@ The system ingests both **real-time events** (from users) and **batch transcript
 After these, your **dashboard** can filter/view recommendations + live engagement windows.
 
 ---
-
-## Ingestion & Transcription (details)
-
-### Kafka Topics
-
-* `episode-metadata` – full metadata for new episodes (used by downloader/transcriber, Mongo writer)
-* `episode-ids` – compacted tracking topic of ids (for de-dupe / replays)
-* `user-events` – user interactions (like, complete, pause, rate, skip)
-
-### Fetch & publish metadata
-
-`fetch_and_publish_metadata.py`:
-
-* Fetch \~50 trending podcasts from Podcast Index
-* Filter to English (metadata + language detection)
-* For each feed, pick the latest episode (`title`, `author`, `description`, `audio_url`, `episode_id`)
-* Publish **metadata** to `episode-metadata` (key = `episode_id`) and **id** to `episode-ids`
-
-*Run:*
-
-```bash
-python scripts/batch/fetch_and_publish_metadata.py
-```
-
-### Transcribe (bounded micro-batch, no Spark)
-
-`scripts/batch/new_episodes_transcript_download.py`:
-
-* Load retryable failures (Delta `transcripts-en`, `retry_count < 3`)
-* Poll Kafka for new `episode-metadata` (bounded poll)
-* Upsert **episodes** metadata to Delta (so retries can discover `audio_url`)
-* Process **one** episode at a time: download → transcribe → upsert transcript to Delta, commit its Kafka offset
-
-*Run:*
-
-```bash
-python scripts/batch/new_episodes_transcript_download.py
-```
-
-> **Robustness**: commits offsets **after** idempotent writes to Delta; failures increment `retry_count` with a cap.
-
----
-
-## Dashboard (Streamlit)
-
-### What it reads
-
-* **MongoDB**: `final_recommendations` snapshot (`user_id`, `recommended_episode_id`, `score`, `generated_at`)
-* **Delta via DuckDB**: last **X** minutes of **events**, plus **episodes** metadata for titles
-
-### Run via Makefile
-
-```bash
-make dashboard-up         # uses docker/streamlit/docker-compose.yml
-make dashboard-logs
-```
-
----
-
-## Troubleshooting
-
-### A) Docker can’t pull images (proxy / DNS / `http.docker.internal`)
-
-In Docker Desktop → **Settings → Proxies**: disable or set your real proxy; **Apply & Restart**
-
-Test:
-
-```bash
-docker pull hello-world
-docker pull python:3.11-slim
-```
-
-### B) Streamlit container: “File does not exist: dashboard.py”
-
-Your compose lives in `docker/streamlit`. Use `context: ../..` and `volumes: ../..:/app`.
-
-Sanity:
-
-```bash
-docker compose -f docker/streamlit/docker-compose.yml exec dashboard \
-  bash -lc 'ls -la /app | head -n 50'
-```
-
-### C) Port already in use (`0.0.0.0:8504`)
-
-```bash
-lsof -iTCP:8504 -sTCP:LISTEN -n -P
-pkill -f 'streamlit run'    # if a local run is occupying it
-# or change host port in compose: "8510:8504"
-```
-
-### D) Delta S3: “credential provider not enabled” / IMDS warnings
-
-* For **local FS**: use filesystem paths and **unset** AWS env vars
-* For **S3**: export `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_EC2_METADATA_DISABLED=true`
-
-### E) DuckDB Delta: “No such file or directory”
-
-Seed first:
-
-```bash
-python testing_dashboard/seed_delta_episodes.py --episodes-path ./data/delta/episodes --count 200 --mode overwrite
-python testing_dashboard/seed_delta_events.py   --path ./data/delta/events    --minutes 60 --users 50 --events-per-user 10 --mode overwrite
-```
-
----
-
