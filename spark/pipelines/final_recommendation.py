@@ -55,7 +55,6 @@ def read_sim(spark: SparkSession):
 
 # ---------- Compute ----------
 def compute_hybrid(als_df, sim_df, alpha: float):
-    # join on original episode, score candidate similar episodes
     hybrid_raw = (
         als_df.alias("a")
         .join(sim_df.alias("s"), F.col("a.episode_id") == F.col("s.episode_id"), "inner")
@@ -66,13 +65,28 @@ def compute_hybrid(als_df, sim_df, alpha: float):
             (F.col("a.als_score") * F.lit(alpha) + F.col("s.similarity") * F.lit(1.0 - alpha)).alias("score"),
         )
     )
-    # collapse duplicates (keep best score)
+
     hybrid = (
         hybrid_raw
         .groupBy("user_id", "recommended_episode_id")
         .agg(F.max("score").alias("score"))
     )
-    return hybrid
+
+    # remove items the user already consumed 
+    user_history = (
+        als_df
+        .select("user_id", F.col("episode_id").alias("historical_episode_id"))
+        .distinct()
+    )
+
+    hybrid_clean = hybrid.join(
+        user_history,
+        on=[ "user_id", hybrid.recommended_episode_id == user_history.historical_episode_id ],
+        how="left_anti",
+    )
+
+    return hybrid_clean
+
 
 def top_n_per_user(hybrid_df, top_n: int):
     w = Window.partitionBy("user_id").orderBy(F.desc("score"))
