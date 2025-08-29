@@ -121,5 +121,4 @@ After these operations, we have simulated the functionality of the system.
 To check the results, go to `http://localhost:8084`.  
 
 ## Example Dashboard
-
-![Dashboard Screenshot](./docs/dashboard_example.png)
+![Dashboard Screenshot](./docs/dashboard.png)
