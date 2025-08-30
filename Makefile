@@ -170,7 +170,7 @@ status:
 	@echo "\n--- Spark Status ---"
 	docker compose -f $(SPARK_PATH)/docker-compose.yml ps
 	@echo "\n--- Dashboard Status ---"
-	docker compose -f $(STREAMLIT_PATH)/docker-compose.yml ps
+	docker compose -f $(DASHBOARD_PATH)/docker-compose.yml ps
 
 # --- Full Project Initialization ---
 init:
@@ -183,9 +183,6 @@ init:
 		sleep 2; \
 	done
 	@$(MAKE) create-topics
-	@$(MAKE) mongo-init
-	@$(MAKE) wait-for-dashboard
-	@$(MAKE) open-dashboard
 	@$(MAKE) spark-up
 	@$(MAKE) dashboard-up
 	@$(MAKE) status
