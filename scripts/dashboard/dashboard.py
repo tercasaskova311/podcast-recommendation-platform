@@ -80,7 +80,7 @@ def _duck():
     return con
 
 @st.cache_data(ttl=5, show_spinner=False)
-def load_events_duck(minutes: int = 10) -> pd.DataFrame:
+def load_events_duck(minutes: int = 30) -> pd.DataFrame:
     """
     Reads only the last `minutes` of raw user events from Delta.
     Expected columns: ts, user_id, episode_id, event, rating.
@@ -90,29 +90,32 @@ def load_events_duck(minutes: int = 10) -> pd.DataFrame:
         df = con.execute(
             """
             WITH src AS (
-              SELECT
-                try_cast(ts AS TIMESTAMP) AS ts,
-                CAST(user_id AS VARCHAR) AS user_id,
-                CAST(episode_id AS VARCHAR) AS episode_id,
-                event, rating
-              FROM delta_scan(?)
-            )
-            SELECT *
-            FROM src
-            WHERE ts >= now() - (? * INTERVAL 1 MINUTE)
-            ORDER BY ts ASC
+                SELECT
+                    try_cast(ts AS TIMESTAMP)                      AS ts,
+                    CAST(user_id AS VARCHAR)                       AS user_id,
+                    NULLIF(CAST(episode_id AS VARCHAR), '')        AS episode_id,
+                    event, rating, event_id, device
+                FROM delta_scan(?)
+                ),
+                mx AS (SELECT max(ts) AS max_ts FROM src)
+                SELECT s.*
+                FROM src s, mx
+                WHERE s.ts >= COALESCE(mx.max_ts - (? * INTERVAL 1 MINUTE), now() - (? * INTERVAL 1 MINUTE))
+                ORDER BY s.ts ASC
             """,
-            [DELTA_RAW_USER_EVENTS_PATH, int(minutes)],
+            [DELTA_RAW_USER_EVENTS_PATH, int(minutes), int(minutes)],
         ).df()
     except Exception as e:
         st.warning(f"Delta read failed: {e}")
-        return pd.DataFrame(columns=["ts", "user_id", "episode_id", "event", "rating"])
+        return pd.DataFrame(columns=["ts", "user_id", "episode_id", "event", "rating", "event_id", "device"])
 
     if not df.empty:
         df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
         df["user_id"] = df["user_id"].astype(str)
         df["episode_id"] = df["episode_id"].astype(str)
+
     return df
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_episode_meta_duck() -> pd.DataFrame:
@@ -139,7 +142,7 @@ def load_episode_meta_duck() -> pd.DataFrame:
     return df
 
 # ========================= UI CONTROLS =========================
-win = st.sidebar.slider("Data from last X min", 5, 60, 10)
+win = st.sidebar.slider("Data from last X min", 5, 60, 30)
 st.header(f"Data from last {win} min")
 topk = st.sidebar.slider("Top K", 5, 100, 20)
 
@@ -169,7 +172,7 @@ st.title("Podcast Recommendation – Platform")
 k1, k2, k3 = st.columns(3)
 k1.metric("Users with recommendations", f"{recs['user_id'].nunique():,}" if "user_id" in recs.columns else "0")
 k2.metric("Avg recommendation score", f"{recs['score'].mean():.3f}" if not recs.empty and "score" in recs.columns else "–")
-
+    
 if not events.empty and "event" in events.columns and "episode_title" in events.columns:
     liked_counts = events.loc[events["event"].eq("like"), "episode_title"].value_counts()
     if len(liked_counts) > 0:
@@ -188,7 +191,7 @@ else:
 st.markdown("### Users and Top Recommended Episode")
 st.caption("Columns: name, lastname, date of birth, gender, episode title suggested. Only users with a profile are shown. Top 20 by score, ordered by lastname and name.")
 
-top_table = pd.DataFrame(columns=["name", "lastname", "date_of_birth", "gender", "episode_title"])
+top_table = pd.DataFrame(columns=["name", "lastname", "date_of_birth", "gender", "episode_title", "score"])
 
 if not recs.empty:
     r = recs.copy()
@@ -221,7 +224,7 @@ if not recs.empty:
             if c not in tbl.columns:
                 tbl[c] = ""
         tbl = tbl.sort_values(["lastname", "name"], ascending=[True, True])
-        top_table = tbl[["name", "lastname", "date_of_birth", "gender", "episode_title"]]
+        top_table = tbl[["name", "lastname", "date_of_birth", "gender", "episode_title", "score"]]
 
 st.dataframe(top_table, use_container_width=True)
 

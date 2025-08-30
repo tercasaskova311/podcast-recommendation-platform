@@ -6,7 +6,7 @@ from pymongo import MongoClient, UpdateOne, ASCENDING
 from config.settings import (
     KAFKA_URL, TOPIC_USER_EVENTS_STREAMING, DELTA_PATH_DAILY,
     USER_EVENT_STREAM,
-    MONGO_URI, MONGO_DB, MONGO_COLLECTION_USER_HISTORY
+    MONGO_URI, MONGO_DB, MONGO_COLLECTION_USER_HISTORY, DELTA_RAW_USER_EVENTS_PATH,
 )
 from spark.util.common import get_spark
 
@@ -43,7 +43,7 @@ raw = (
     .option("subscribe", TOPIC_USER_EVENTS_STREAMING)
     .option("kafka.group.id", CONSUMER_GROUP_ID)
     .option("startingOffsets", "earliest")
-    .option("maxOffsetsPerTrigger", "20")
+    .option("maxOffsetsPerTrigger", "200")
     .option("failOnDataLoss", "false")
     .load()
 )
@@ -65,6 +65,12 @@ parsed = (
        .dropDuplicates(["event_id"])
 )
 
+# Raw events sink for dashboard
+raw_events_for_delta = (
+    parsed
+    .select("ts", "user_id", "episode_id", "event", "rating", "event_id", "device")
+    .withColumn("day", F.to_date("ts"))
+)
 # ----------------- Compute Engagement Weights -----------------
 w = (
     F.when(F.col("event")=="like", F.lit(LIKE_W))
@@ -91,7 +97,15 @@ except Exception:
         created_at timestamp, updated_at timestamp
     """)
      .write.format("delta").partitionBy("day").mode("overwrite").save(DELTA_PATH_DAILY))
-
+    
+# Init Delta raw user events if missing
+try:
+    DeltaTable.forPath(spark, DELTA_RAW_USER_EVENTS_PATH)
+except Exception:
+    (spark.createDataFrame([], "ts timestamp, user_id string, episode_id string, event string, rating int, event_id string, device string")
+         .withColumn("day", F.to_date(F.col("ts")))
+         .write.format("delta").partitionBy("day").mode("overwrite").save(DELTA_RAW_USER_EVENTS_PATH))
+    
 # ----------------- Process Each Micro-Batch -----------------
 def process_batch(batch_df, batch_id):
     if batch_df.rdd.isEmpty():
@@ -174,12 +188,21 @@ def process_batch(batch_df, batch_id):
         coll.bulk_write(ops, ordered=False)
 
 # ----------------- Start Streaming Query -----------------
-q = (
+raw_q = (
+    raw_events_for_delta.writeStream
+        .format("delta")
+        .option("path", DELTA_RAW_USER_EVENTS_PATH)
+        .option("checkpointLocation", f"{USER_EVENT_STREAM}/raw")  # separate checkpoint
+        .outputMode("append")
+        .partitionBy("day")
+        .start()
+)
+agg_q = (
     scored.writeStream
           .foreachBatch(process_batch)
-          .option("checkpointLocation", USER_EVENT_STREAM)
+          .option("checkpointLocation", f"{USER_EVENT_STREAM}/agg") # separate checkpoint
           .trigger(processingTime="30 seconds")
           .start()
 )
 
-q.awaitTermination()
+spark.streams.awaitAnyTermination()

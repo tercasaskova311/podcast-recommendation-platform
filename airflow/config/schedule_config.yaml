@@ -1,3 +1,3 @@
 new_episodes_interval: "@hourly"  # Trigger new episodes processing pipeline
-recommendation_interval: '*/10 * * * *' #Trigger recommendation scripts every 10 mins
+recommendation_interval: '*/20 * * * *' #Trigger recommendation scripts every 10 mins
 simulate_user_events_interval: '*/5 * * * *' #Trigger user event simulaion script
