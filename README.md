@@ -30,12 +30,10 @@ root/
 ├── data/                  # Raw & processed datasets (local staging area)
 ├── docker/                # Docker build files & container configs
 ├── docs/                  # Documentation, diagrams, and architecture notes
-├── scripts/               # Utility scripts (ETL jobs, helpers, maintenance)
+├── scripts/               # Utility scripts (ETL jobs, helpers, maintenance, dashboard)
 ├── spark/                 # Spark jobs for distributed processing
 │   └── pipelines/         # Individual Spark pipeline definitions
 ├── demo/                  # Example runs, demo workflows, or notebooks
-├── dashboard.py           # Interactive dashboard (entrypoint for UI/analytics)
-│
 ├── .env.development       # Environment variables (local dev)
 ├── .gitignore             # Ignore rules for Git
 ├── Makefile               # Developer shortcuts (build, test, run, deploy)
@@ -78,7 +76,7 @@ root/
 ### Ingest
 
 * Fetch trending episodes from PodcastIndex.com → publish to Kafka (`episode-metadata`, `episode-ids`)
-* Sequential downloader/transcriber writes **episodes** & **transcripts** to **Delta**
+* Vosk voice-to-text writes **episodes** & **transcripts** to **Delta**
 * User Event simulation - in order to recreate real life data (Stream processing)
 
 ### Training / Analytics
