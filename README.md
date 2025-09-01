@@ -71,7 +71,7 @@ root/
 
 ## Architecture Diagram
 
-![Architecture Diagram](./docs/project_architecture.png)
+![Architecture Diagram](./docs/Architecture.png)
 
 ### Ingest
 
