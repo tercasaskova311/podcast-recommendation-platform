@@ -23,55 +23,55 @@
 
 ## Why These Technologies?
 
-### Kafka — “reliable conveyor belt”
+### Kafka
 
 * **Role:** Event transport (ingestion + replay).
 * **Why:** Back-pressure friendly, consumer groups for parallel workers, *replay by offset* for deterministic reprocessing.
 * **Trade-offs:** Not a data lake; keep retention sane and land truth in Delta.
 
-### Delta Lake — “warehouse with labeled aisles”
+### Delta Lake 
 
 * **Role:** ACID data lake for transcripts, events, and embeddings.
 * **Why:** Schema evolution, time-travel for reproducibility (train on version N), scalable Parquet under the hood.
 * **Trade-offs:** Best with columnar/append patterns; use merge/upsert judiciously.
 
-### Spark (+ Structured Streaming) — “parallel assembly line”
+### Spark (+ Structured Streaming)
 
 * **Role:** Batch ETL, streaming aggregation, and **ML (ALS)**.
 * **Why:** One engine for stream + batch; integrates with Delta; distributed ALS scales beyond single-machine RAM.
 * **Trade-offs:** Spin-up/overhead for tiny reads—use DuckDB for interactive analytics.
 
-### Fast-Whisper (faster-whisper) — “efficient transcription”
+### Vosk — “efficient transcription”
 
 * **Role:** Speech-to-text for podcast audio.
 * **Why:** Optimized inference (CTranslate2), strong accuracy for long-form audio, **local** (no vendor lock-in), fits batch pipeline.
 * **Alt considered:** Cloud STT (faster to start, \$\$\$ at scale), WhisperX (alignment/timestamps) if you need word-level timing.
 
-### Embeddings + KNN — “content map”
+### Embeddings + KNN 
 
 * **Role:** Turn text into vectors → find semantically similar episodes.
 * **Why:** Solves **cold-start** and topical discovery; complements behavior-only models.
 * **Trade-offs:** Choose model size vs. latency; maintain versioned embeddings.
 
-### ALS (Spark ML) — “crowd wisdom”
+### ALS (Spark ML) 
 
 * **Role:** Collaborative filtering from user–episode interactions.
 * **Why:** Well-understood, scalable on Spark, handles implicit feedback (weights from plays/likes).
 * **Alt considered:** BPR/MF variants, neural recommenders; ALS wins on simplicity + scaling for this phase.
 
-### MongoDB — “fast storefront”
+### MongoDB 
 
 * **Role:** Low-latency store for app-facing results (similarities, ALS, final recs).
 * **Why:** JSON-first, simple overwrite/update patterns, easy indexing for user/episode queries.
 * **Trade-offs:** Keep heavy analytics out; that’s what Delta/DuckDB/Spark are for.
 
-### DuckDB — “pocket analytics lab”
+### DuckDB 
 
 * **Role:** In-process SQL over Delta/Parquet for dashboards and ad-hoc analysis.
 * **Why:** Zero cluster, columnar speed, ideal for Streamlit; avoids waking Spark.
 * **Trade-offs:** Single-process memory; great for reads, not a transactional store.
 
-### Streamlit — “interactive window”
+### Streamlit
 
 * **Role:** UI for recommendations + live analytics.
 * **Why:** Rapid dev, Python-native, easy to wire Mongo + DuckDB.
