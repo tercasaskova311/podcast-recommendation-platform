@@ -79,7 +79,7 @@
 
 ---
 
-## Data Contracts (at a glance)
+## Data 
 
 * **Kafka topics:**
   `episode-metadata` (podcast/episode JSON), `user-events` (like/play/skip…).
@@ -90,14 +90,14 @@
 
 ---
 
-## Modeling Notes
+## Modeling 
 
 **Event weighting (implicit feedback → ALS):**
 
 * Example: `play_>80% = 3`, `like = 2`, `play_<20% = 0.5`, `skip = 0.2`.
 * Aggregate to daily `user×episode` scores before training ALS.
 
-**Hybrid fusion (ALS ⊕ Content):**
+**Hybrid recommendation (ALS ⊕ Content):**
 
 * `final_score = α·als_score + (1–α)·cosine_similarity`, with `α≈0.6–0.8` to start.
 * Calibrate by validation clicks or simulated CTR.
@@ -112,16 +112,16 @@
 
 ---
 
-## Example (30s)
+## Example
 
-1. New episode lands → Kafka → **Fast-Whisper** → transcript → **Delta**.
+1. New episode lands → Kafka → **Vosk** → transcript → **Delta**.
 2. Embeddings computed → **KNN** similar episodes → **Mongo** (`similarities`).
 3. User events stream in → Spark aggregates → **ALS** top-N → **Mongo** (`als_top_n`).
 4. **Final join** (ALS + similarity) → **Mongo** (`final_recommendations`) → **Streamlit** renders.
 
 ---
 
-## Appendix: Key Files
+## Key Files
 
 * **Ingestion:** `scripts/batch/new_episodes_transcript_download.py` (calls `util/transcription.process_batch`).
 * **Transcripts analysis:** `spark/pipelines/analyze_transcripts_pipeline.py`.
