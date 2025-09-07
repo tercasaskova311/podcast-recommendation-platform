@@ -71,7 +71,7 @@ root/
 
 ## Architecture Diagram
 
-![Architecture — transcripts & user events merge](./Architecture.png)
+![Architecture — transcripts & user events merge](.docs/Architecture.png)
 
 ### Ingest
 
