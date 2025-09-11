@@ -71,7 +71,7 @@ root/
 
 ## Architecture Diagram
 
-![Architecture](docs/Architecture.png)
+![Architecture](docs/sequence-diagram.png)
 
 ### Ingest
 
